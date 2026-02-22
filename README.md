@@ -1,6 +1,8 @@
 # Overview 
 
-This repo contains the **bsg\_manycore** source code with contributions from the [Bespoke Silicon Group](http://cseweb.ucsd.edu/~mbtaylor/research_team.html) and others.
+EE 545 Final Project for Yara Al-Shorman and Veronica Gong.
+
+This repo is a fork of the **bsg\_manycore** source code with contributions from the [Bespoke Silicon Group](http://cseweb.ucsd.edu/~mbtaylor/research_team.html) and others.
 
 The tile based architecture is designed for computing efficiency, scalability and generality. The two main components are:
 
