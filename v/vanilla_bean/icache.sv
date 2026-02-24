@@ -1,9 +1,8 @@
 /**
- *  icache.v
+ *  icache_dual_issue.sv
  *
- *  Instruction cache for manycore. 
- *
- *  05/11/2018, shawnless.xie@gmail.com
+ *  Super-scalar (dual-issue) instruction cache for manycore. 
+ *  Outputs 2 consecutive instructions with dual branch predictions.
  *
  *  Diagram on branch target pre-computation logic:
  *  https://docs.google.com/presentation/d/1ZeRHYhqMHJQ0mRgDTilLuWQrZF7On-Be_KNNosgeW0c/edit#slide=id.g10d2e6febb9_1_0
@@ -11,7 +10,7 @@
 
 `include "bsg_vanilla_defines.svh"
 
-module icache
+module icache // dual issue icache
   import bsg_vanilla_pkg::*;
   #(`BSG_INV_PARAM(icache_tag_width_p)
     , `BSG_INV_PARAM(icache_entries_p)
@@ -26,24 +25,31 @@ module icache
     , input reset_i
 
     // ctrl signal
-    , input v_i
-    , input w_i
-    , input flush_i
-    , input read_pc_plus4_i
+    , input v_i // valid inputs
+    , input w_i // write enable
+    , input flush_i // signal to flush
+    , input read_pc_plus4_i // signal to read pc+4 (used for energy optimization, less critical for dual-issue)
 
     // icache write
-    , input [pc_width_lp-1:0] w_pc_i
-    , input [RV32_instr_width_gp-1:0] w_instr_i
+    , input [pc_width_lp-1:0] w_pc_i // the pc of the instruction being written to icache
+    , input [RV32_instr_width_gp-1:0] w_instr_i // the instruction being written to icache
 
-    // icache read (by processor)
-    , input [pc_width_lp-1:0] pc_i
-    , input [pc_width_lp-1:0] jalr_prediction_i
-    , output [RV32_instr_width_gp-1:0] instr_o
-    , output [pc_width_lp-1:0] pred_or_jump_addr_o
-    , output [pc_width_lp-1:0] pc_r_o
-    , output icache_miss_o
-    , output icache_flush_r_o
-    , output logic branch_predicted_taken_o
+    // icache read (by processor) - provides 2 consecutive PCs
+    , input [pc_width_lp-1:0] pc_i // the pc of the first instruction to read
+    , input [pc_width_lp-1:0] jalr_prediction_0_i // jalr predictor for first instruction
+    , input [pc_width_lp-1:0] jalr_prediction_1_i // jalr predictor for second instruction
+
+    // DUAL ISSUE OUTPUT: Two instructions, two PCs, two branch predictions
+    , output [RV32_instr_width_gp-1:0] instr0_o // first instruction
+    , output [RV32_instr_width_gp-1:0] instr1_o // second instruction (pc + 1 word)
+    , output [pc_width_lp-1:0] pred_or_jump_addr0_o // predicted jump target for first instruction
+    , output [pc_width_lp-1:0] pred_or_jump_addr1_o // predicted jump target for second instruction
+    , output [pc_width_lp-1:0] pc0_o // the pc of the first instruction read from icache
+    , output [pc_width_lp-1:0] pc1_o // the pc of the second instruction (pc0_o + 1)
+    , output logic branch_predicted_taken0_o // branch prediction for first instruction
+    , output logic branch_predicted_taken1_o // branch prediction for second instruction
+    , output icache_miss_o // icache miss for first instruction
+    , output icache_flush_r_o // signal to indicate the icache is being flushed
   );
 
   // localparam
@@ -193,11 +199,9 @@ module icache
   end
   // synopsys translate_on
 
-  // Program counter
+  // Program counter - tracks first instruction
   logic [pc_width_lp-1:0] pc_r; 
   logic icache_flush_r;
-  // Since imem has one cycle delay and we send next cycle's address, pc_n,
-  // if the PC is not written, the instruction must not change.
 
   always_ff @ (posedge clk_i) begin
     if (reset_i) begin
@@ -219,90 +223,162 @@ module icache
   assign icache_flush_r_o = icache_flush_r;
 
 
-  // Energy-saving logic
-  // - Don't read the icache if the current pc is not at the last word of the block, and 
-  //   there is a hint from the next-pc logic that it is reading pc+4 next (no branch or jump).
+  // Energy-saving logic (simplified for dual-issue)
+  // - Don't read the icache if at the last word of the block and expecting sequential fetch next cycle
+  //   since next fetch would wrap to next block (block boundary crossing requires separate memory access)
   assign v_li = w_i
     ? write_en_icache
-    : (v_i & ((&pc_r[0+:icache_block_offset_width_lp]) | ~read_pc_plus4_i));
+    : (v_i & ((&pc_r[0+:icache_block_offset_width_lp] | (pc_r[0+:icache_block_offset_width_lp] == (icache_block_size_in_words_p-2))) | ~read_pc_plus4_i));
 
 
-  // Merge the PC lower part and high part
-  // BYTE operations
-  instruction_s instr_out;
-  assign instr_out = icache_data_lo.instr[pc_r[0+:icache_block_offset_width_lp]];
-  wire lower_sign_out = icache_data_lo.lower_sign[pc_r[0+:icache_block_offset_width_lp]];
-  wire lower_cout_out = icache_data_lo.lower_cout[pc_r[0+:icache_block_offset_width_lp]];
-  wire sel_pc    = ~(lower_sign_out ^ lower_cout_out); 
-  wire sel_pc_p1 = (~lower_sign_out) & lower_cout_out; 
+  // ============================================================================
+  // DUAL ISSUE READ PATH: Extract two consecutive instructions
+  // ============================================================================
 
-  logic [branch_pc_high_width_lp-1:0] branch_pc_high;
-  logic [jal_pc_high_width_lp-1:0] jal_pc_high;
+  // Extract first instruction (at offset pc_r[block_offset])
+  instruction_s instr0_out;
+  wire lower_sign0_out, lower_cout0_out;
+  
+  assign instr0_out = icache_data_lo.instr[pc_r[0+:icache_block_offset_width_lp]];
+  assign lower_sign0_out = icache_data_lo.lower_sign[pc_r[0+:icache_block_offset_width_lp]];
+  assign lower_cout0_out = icache_data_lo.lower_cout[pc_r[0+:icache_block_offset_width_lp]];
 
-  assign branch_pc_high = pc_r[(branch_pc_low_width_lp-2)+:branch_pc_high_width_lp];
-  assign jal_pc_high = pc_r[(jal_pc_low_width_lp-2)+:jal_pc_high_width_lp];
+  // Extract second instruction (at offset pc_r[block_offset] + 1)
+  // NOTE: This assumes icache_block_size_in_words_p >= 2
+  //       If the second instruction is at the block boundary, this may cross to next block
+  //       In that case, we'd need dual-port memory or separate handling
+  // For now, assume block_size >= 2 and both instructions fit within the same block
+  instruction_s instr1_out;
+  wire lower_sign1_out, lower_cout1_out;
+  logic [icache_block_offset_width_lp-1:0] offset_instr1;
+  
+  assign offset_instr1 = pc_r[0+:icache_block_offset_width_lp] + 1'b1;
+  assign instr1_out = icache_data_lo.instr[offset_instr1];
+  assign lower_sign1_out = icache_data_lo.lower_sign[offset_instr1];
+  assign lower_cout1_out = icache_data_lo.lower_cout[offset_instr1];
 
-  logic [branch_pc_high_width_lp-1:0] branch_pc_high_out;
-  logic [jal_pc_high_width_lp-1:0] jal_pc_high_out;
 
+  // ============================================================================
+  // Branch Target Prediction for INSTRUCTION 0
+  // ============================================================================
 
-  // We are saving the carry-out when we are partially computing the
-  // lower-portion jump addr, as we write to the icache.
-  // When we are calculating the full jump addr, as we read back from the icache,
-  // we decide how to propagate the carry to the upper portion of the jump
-  // addr, using this table.
-  // -------------------------------------------------------------
-  // pc_lower_sign  pc_lower_cout  | pc_high-1  pc_high  pc_high+1
-  // ------------------------------+------------------------------
-  //   0              0            |            1                   
-  //   0              1            |                     1
-  //   1              0            | 1                                     
-  //   1              1            |            1 
-  // ------------------------------+------------------------------
-  //
+  wire sel_pc0    = ~(lower_sign0_out ^ lower_cout0_out); 
+  wire sel_pc0_p1 = (~lower_sign0_out) & lower_cout0_out; 
+
+  logic [branch_pc_high_width_lp-1:0] branch_pc_high0;
+  logic [jal_pc_high_width_lp-1:0] jal_pc_high0;
+
+  assign branch_pc_high0 = pc_r[(branch_pc_low_width_lp-2)+:branch_pc_high_width_lp];
+  assign jal_pc_high0 = pc_r[(jal_pc_low_width_lp-2)+:jal_pc_high_width_lp];
+
+  logic [branch_pc_high_width_lp-1:0] branch_pc_high0_out;
+  logic [jal_pc_high_width_lp-1:0] jal_pc_high0_out;
+
   always_comb begin
-    if (sel_pc) begin
-      branch_pc_high_out = branch_pc_high;
-      jal_pc_high_out = jal_pc_high;
+    if (sel_pc0) begin
+      branch_pc_high0_out = branch_pc_high0;
+      jal_pc_high0_out = jal_pc_high0;
     end
-    else if (sel_pc_p1) begin
-      branch_pc_high_out = branch_pc_high + 1'b1;
-      jal_pc_high_out = jal_pc_high + 1'b1;
+    else if (sel_pc0_p1) begin
+      branch_pc_high0_out = branch_pc_high0 + 1'b1;
+      jal_pc_high0_out = jal_pc_high0 + 1'b1;
     end
-    else begin // sel_pc_n1
-      branch_pc_high_out = branch_pc_high - 1'b1;
-      jal_pc_high_out = jal_pc_high - 1'b1;
+    else begin // sel_pc0_n1
+      branch_pc_high0_out = branch_pc_high0 - 1'b1;
+      jal_pc_high0_out = jal_pc_high0 - 1'b1;
     end
   end
 
-  wire is_jal_instr =  instr_out.op == `RV32_JAL_OP;
-  wire is_jalr_instr = instr_out.op == `RV32_JALR_OP;
+  wire is_jal_instr0 =  instr0_out.op == `RV32_JAL_OP;
+  wire is_jalr_instr0 = instr0_out.op == `RV32_JALR_OP;
 
-  // these are bytes address
-  logic [pc_width_lp+2-1:0] jal_pc;
-  logic [pc_width_lp+2-1:0] branch_pc;
+  logic [pc_width_lp+2-1:0] jal_pc0;
+  logic [pc_width_lp+2-1:0] branch_pc0;
    
-  assign branch_pc = {branch_pc_high_out, `RV32_Bimm_13extract(instr_out)};
-  assign jal_pc = {jal_pc_high_out, `RV32_Jimm_21extract(instr_out)};
+  assign branch_pc0 = {branch_pc_high0_out, `RV32_Bimm_13extract(instr0_out)};
+  assign jal_pc0 = {jal_pc_high0_out, `RV32_Jimm_21extract(instr0_out)};
 
-  // assign outputs.
-  assign instr_o = instr_out;
-  assign pc_r_o = pc_r;
 
-  // this is word addr.
-  assign pred_or_jump_addr_o = is_jal_instr
-    ? jal_pc[2+:pc_width_lp]
-    : (is_jalr_instr
-      ? jalr_prediction_i
-      : branch_pc[2+:pc_width_lp]);
+  // ============================================================================
+  // Branch Target Prediction for INSTRUCTION 1
+  // ============================================================================
 
-  // the icache miss logic
+  // For instruction 1, we need to compute with PC = pc_r + 1
+  // The carry propagation is similar but uses pc_r + 1
+  wire sel_pc1    = ~(lower_sign1_out ^ lower_cout1_out); 
+  wire sel_pc1_p1 = (~lower_sign1_out) & lower_cout1_out; 
+
+  logic [branch_pc_high_width_lp-1:0] branch_pc_high1;
+  logic [jal_pc_high_width_lp-1:0] jal_pc_high1;
+
+  // pc_r + 1 in terms of the low/high split for branch/jal calculations
+  // Since we're at offset+1, we need to be careful about carry propagation
+  logic [pc_width_lp-1:0] pc1_val = pc_r + 1'b1;
+  
+  assign branch_pc_high1 = pc1_val[(branch_pc_low_width_lp-2)+:branch_pc_high_width_lp];
+  assign jal_pc_high1 = pc1_val[(jal_pc_low_width_lp-2)+:jal_pc_high_width_lp];
+
+  logic [branch_pc_high_width_lp-1:0] branch_pc_high1_out;
+  logic [jal_pc_high_width_lp-1:0] jal_pc_high1_out;
+
+  always_comb begin
+    if (sel_pc1) begin
+      branch_pc_high1_out = branch_pc_high1;
+      jal_pc_high1_out = jal_pc_high1;
+    end
+    else if (sel_pc1_p1) begin
+      branch_pc_high1_out = branch_pc_high1 + 1'b1;
+      jal_pc_high1_out = jal_pc_high1 + 1'b1;
+    end
+    else begin // sel_pc1_n1
+      branch_pc_high1_out = branch_pc_high1 - 1'b1;
+      jal_pc_high1_out = jal_pc_high1 - 1'b1;
+    end
+  end
+
+  wire is_jal_instr1 =  instr1_out.op == `RV32_JAL_OP;
+  wire is_jalr_instr1 = instr1_out.op == `RV32_JALR_OP;
+
+  logic [pc_width_lp+2-1:0] jal_pc1;
+  logic [pc_width_lp+2-1:0] branch_pc1;
+   
+  assign branch_pc1 = {branch_pc_high1_out, `RV32_Bimm_13extract(instr1_out)};
+  assign jal_pc1 = {jal_pc_high1_out, `RV32_Jimm_21extract(instr1_out)};
+
+
+  // ============================================================================
+  // ASSIGN OUTPUTS - DUAL ISSUE
+  // ============================================================================
+  
+  // Instruction outputs
+  assign instr0_o = instr0_out;
+  assign instr1_o = instr1_out;
+  
+  // PC outputs
+  assign pc0_o = pc_r;
+  assign pc1_o = pc_r + 1'b1;
+
+  // Predicted jump/branch targets
+  assign pred_or_jump_addr0_o = is_jal_instr0
+    ? jal_pc0[2+:pc_width_lp]
+    : (is_jalr_instr0
+      ? jalr_prediction_0_i
+      : branch_pc0[2+:pc_width_lp]);
+
+  assign pred_or_jump_addr1_o = is_jal_instr1
+    ? jal_pc1[2+:pc_width_lp]
+    : (is_jalr_instr1
+      ? jalr_prediction_1_i
+      : branch_pc1[2+:pc_width_lp]);
+
+  // Branch prediction indicators (from sign bit of immediate)
+  assign branch_predicted_taken0_o = lower_sign0_out;
+  assign branch_predicted_taken1_o = lower_sign1_out;
+
+  // icache miss logic - check first instruction
   assign icache_miss_o = icache_data_lo.tag != pc_r[icache_block_offset_width_lp+icache_addr_width_lp+:icache_tag_width_p];
- 
-  // branch imm sign
-  assign branch_predicted_taken_o = lower_sign_out;
 
  
 endmodule
 
-`BSG_ABSTRACT_MODULE(icache)
+`BSG_ABSTRACT_MODULE(icache_dual_issue)
