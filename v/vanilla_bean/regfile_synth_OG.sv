@@ -12,7 +12,6 @@ module regfile_synth
   #(`BSG_INV_PARAM(width_p)
     , `BSG_INV_PARAM(els_p)
     , `BSG_INV_PARAM(num_rs_p)
-    , num_ws_p // number of writeback ports
     , `BSG_INV_PARAM(x0_tied_to_zero_p)
 
     , localparam addr_width_lp=`BSG_SAFE_CLOG2(els_p)
@@ -21,16 +20,10 @@ module regfile_synth
     input clk_i
     , input reset_i
 
-    // wb port 1
     , input w_v_i
     , input [addr_width_lp-1:0] w_addr_i
     , input [width_p-1:0] w_data_i
     
-    // wb port 2 (fp regfile only)
-    , input w2_v_i
-    , input [addr_width_lp-1:0] w2_addr_i
-    , input [width_p-1:0] w2_data_i
-
     , input [num_rs_p-1:0] r_v_i
     , input [num_rs_p-1:0][addr_width_lp-1:0] r_addr_i
     , output logic [num_rs_p-1:0][width_p-1:0] r_data_o
@@ -54,19 +47,11 @@ module regfile_synth
     for (genvar i = 0; i < num_rs_p; i++)
       assign r_data_o[i] = (r_addr_r[i] == '0)? '0 : mem_r[r_addr_r[i]];
 
-    always_ff @ (posedge clk_i) begin
-
-      // wb port 1
+    always_ff @ (posedge clk_i)
       if (w_v_i & (w_addr_i != '0))
         mem_r[w_addr_i] <= w_data_i;
 
-      // wb port 2 (fp regfile only)
-      // allow port 2 to overwrite port 1 if same addr
-      if (num_ws_p > 1) begin
-        if (w2_v_i & (w2_addr_i != '0))
-          mem_r[w2_addr_i] <= w2_data_i;
-      end
-    end
+
   end
   else begin: xnz
     // x0 is not tied to zero.
@@ -76,19 +61,11 @@ module regfile_synth
       assign r_data_o[i] = mem_r[r_addr_r[i]];
 
     always_ff @ (posedge clk_i)
-
-      // wb port 1
       if (w_v_i)
         mem_r[w_addr_i] <= w_data_i;
-
-      // wb port 2 (fp regfile only)
-      // allow port 2 to overwrite port 1 if same addr
-      if (num_ws_p > 1) begin
-        if (w2_v_i)
-          mem_r[w2_addr_i] <= w2_data_i;
-      end
-    end
+    
   end
+
 
 endmodule
 

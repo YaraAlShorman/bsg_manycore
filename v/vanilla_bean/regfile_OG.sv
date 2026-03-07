@@ -14,7 +14,6 @@ module regfile
   #(`BSG_INV_PARAM(width_p)
     , `BSG_INV_PARAM(els_p)
     , `BSG_INV_PARAM(num_rs_p)
-    , num_ws_p=1 // number of writeback ports
     , `BSG_INV_PARAM(x0_tied_to_zero_p)
     , harden_p=0
 
@@ -24,16 +23,10 @@ module regfile
     input clk_i
     , input reset_i
 
-    // wb port 1
     , input w_v_i
     , input [addr_width_lp-1:0] w_addr_i
     , input [width_p-1:0] w_data_i
     
-    // wb port 2
-    , input w2_v_i
-    , input [addr_width_lp-1:0] w2_addr_i
-    , input [width_p-1:0] w2_data_i
-
     , input [num_rs_p-1:0] r_v_i
     , input [num_rs_p-1:0][addr_width_lp-1:0] r_addr_i
     , output logic [num_rs_p-1:0][width_p-1:0] r_data_o
@@ -53,18 +46,11 @@ module regfile
       .width_p(width_p)
       ,.els_p(els_p)
       ,.num_rs_p(num_rs_p)
-      ,.num_ws_p(num_ws_p)
       ,.x0_tied_to_zero_p(x0_tied_to_zero_p)
     ) rf (.*);
   end
 
 
-  initial begin
-    // check 1: limit write ports to 1 or 2
-    // check 2: if 2 ports requested, harden_p must be 0
-    assert(num_ws_p == 1 || (num_ws_p == 2 && harden_p == 0))
-    else $error("[ERROR][REGFILE] num_ws_p=2 is only supported when harden_p=0 (synthesized). Requested num_ws_p: %0d, harden_p: %0d", num_ws_p, harden_p);
-  end
 
 endmodule
 
