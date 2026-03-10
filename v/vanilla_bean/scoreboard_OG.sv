@@ -1,24 +1,17 @@
 /**
- *  scoreboard.v (modified for dual-issue)
- *  
- *  Allow 2 instructions to reserve registers (score) and 
- *  complete (clear) simultaneously.
+ *  scoreboard.v
+ *
+ *  2020-05-08:  Tommy J - adding FMA support.
+ *
  */
 
 `include "bsg_defines.sv"
 
-module scoreboard
+module scoreboard_OG
   import bsg_vanilla_pkg::*;
   #(els_p = RV32_reg_els_gp
     , `BSG_INV_PARAM(num_src_port_p)
-
-    // int scoreboard: 1 clear port (default)
-    // fp scoreboard: 2 clear ports
     , num_clear_port_p=1
-
-    // up to 2 registers marked as busy per cycle
-    , num_score_port_p=1
-
     , x0_tied_to_zero_p = 0
     , localparam id_width_lp = `BSG_SAFE_CLOG2(els_p)
   )
@@ -32,10 +25,8 @@ module scoreboard
     , input [num_src_port_p-1:0] op_reads_rf_i
     , input op_writes_rf_i
 
-    // score port 0 = older instruction
-    // score port 1 = younger instruction
-    , input [num_score_port_p-1:0] score_i
-    , input [num_score_port_p-1:0][id_width_lp-1:0] score_id_i
+    , input score_i
+    , input [id_width_lp-1:0] score_id_i
 
     , input [num_clear_port_p-1:0] clear_i
     , input [num_clear_port_p-1:0][id_width_lp-1:0] clear_id_i
@@ -45,21 +36,16 @@ module scoreboard
 
   logic [els_p-1:0] scoreboard_r;
 
-
-  // ---------------------------
   // multi-port clear logic
-  // ---------------------------
-
+  //
   logic [num_clear_port_p-1:0][els_p-1:0] clear_by_port;
   logic [els_p-1:0][num_clear_port_p-1:0] clear_by_port_t; // transposed
   logic [els_p-1:0] clear_combined;
 
-  // clear port transpose
-  //
   bsg_transpose #(
     .els_p(num_clear_port_p)
     ,.width_p(els_p)
-  ) clr_tranposer (
+  ) tranposer (
     .i(clear_by_port)
     ,.o(clear_by_port_t)
   );
@@ -82,7 +68,6 @@ module scoreboard
 
 
   // synopsys translate_off
-  /*
   always_ff @ (negedge clk_i) begin
     if (~reset_i) begin
       for (integer i = 0; i < els_p; i++) begin
@@ -91,65 +76,19 @@ module scoreboard
       end
     end
   end
-  */
   // synopsys translate_on
 
+  wire allow_zero = (x0_tied_to_zero_p == 0) | (score_id_i != '0);
 
-  // ---------------------------
-  // multi-port score logic
-  // ---------------------------
-
-  // logic [els_p-1:0] score_bits;
-  logic [num_score_port_p-1:0][els_p-1:0] score_by_port; // replaces score_bits
-  logic [els_p-1:0][num_score_port_p-1:0] score_by_port_t; // transposed
-  logic [els_p-1:0] score_combined;
-
-  // determine allow_zero per score port
-  logic [num_score_port_p-1:0] allow_zero;
-
-  // score port transpose
-  //
-  bsg_transpose #(
-    .els_p(num_score_port_p)
-    ,.width_p(els_p)
-  ) scr_transposer (
-    .i(score_by_port)
-    ,.o(score_by_port_t)
+  logic [els_p-1:0] score_bits;
+  bsg_decode_with_v #(
+    .num_out_p(els_p)
+  ) score_demux (
+    .i(score_id_i)
+    ,.v_i(score_i & allow_zero)
+    ,.o(score_bits)
   );
 
-  for (genvar j = 0 ; j < num_score_port_p ; j++) begin: score_dcode_v
-    assign allow_zero[j] = (x0_tied_to_zero_p == 0) | (score_id_i[j] != '0);
-
-    bsg_decode_with_v #(
-      .num_out_p(els_p)
-    ) score_demux (
-      .i(score_id_i[j])
-      ,.v_i(score_i[j] & allow_zero[j])
-      ,.o(score_by_port[j])
-    );
-  end
-
-  // combine score bits
-  always_comb begin
-    for (integer i = 0; i < els_p; i++) begin
-      score_combined[i] = |score_by_port_t[i];
-    end
-  end
-
-  // make extra sure x0 not marked busy
-  // synopsys translate_off
-  always_ff @ (negedge clk_i) begin
-    if (x0_tied_to_zero_p && ~reset_i) begin
-      // score_combined[0] = register x0
-      assert(!score_combined[0]) 
-      else $error("[ERROR][SCOREBOARD] Port Safety Violation: Attempted to score register x0.");
-    end
-  end
-  // synopsys translate_on
-
-
-  //---------------------------------------
-  //
   always_ff @ (posedge clk_i) begin
     for (integer i = 0; i < els_p; i++) begin
       if(reset_i) begin
@@ -162,7 +101,7 @@ module scoreboard
         // the pipeline should not allow a new dependency
         // on a register until the old dependency on that 
         // register is cleared.
-        if(score_combined[i]) begin
+        if(score_bits[i]) begin
           scoreboard_r[i] <= 1'b1;
         end
         else if (clear_combined[i]) begin
@@ -187,10 +126,7 @@ module scoreboard
   
   assign rd_depend_on_sb = scoreboard_r[dest_id_i] & op_writes_rf_i;
 
-  // --------------------------------
   // find which matches on clear_id.
-  // --------------------------------
-
   logic [num_clear_port_p-1:0][num_src_port_p-1:0] rs_on_clear;
   logic [num_src_port_p-1:0][num_clear_port_p-1:0] rs_on_clear_t;
   logic [num_clear_port_p-1:0] rd_on_clear;
@@ -220,58 +156,35 @@ module scoreboard
 
   assign rd_on_clear_combined = |rd_on_clear;
 
-
-  // ----------------------------------
   // find which could depend on score.
-  // ----------------------------------
+  logic [num_src_port_p-1:0] rs_depend_on_score;
+  logic rd_depend_on_score;
 
-  logic [num_score_port_p-1:0][num_src_port_p-1:0] rs_depend_on_score;
-  logic [num_src_port_p-1:0][num_score_port_p-1:0] rs_depend_on_score_t; // transposed
-  logic [num_score_port_p-1:0] rd_depend_on_score;
-
-  // check if current src/dest ID matches reg being scored
-  for (genvar i = 0; i < num_score_port_p; i++) begin
-    for (genvar j = 0; j < num_src_port_p; j++) begin
-
-      // RAW
-      assign rs_depend_on_score[i][j] = (src_id_i[j] == score_id_i[i]) && op_reads_rf_i[j];
-    end
-
-    // WAW
-    assign rd_depend_on_score[i] = (dest_id_i == score_id_i[i]) && op_writes_rf_i;
+  for (genvar i = 0; i < num_src_port_p; i++) begin
+    assign rs_depend_on_score[i] = (src_id_i[i] == score_id_i) && op_reads_rf_i[i];
   end
 
-  // -----------------------------
-  // final dependency calculation
-  // -----------------------------
+  assign rd_depend_on_score = (dest_id_i == score_id_i) && op_writes_rf_i;
+
 
   // score_i arrives later than other signals, so we want to remove it from the long path.
   wire depend_on_sb = |({rd_depend_on_sb, rs_depend_on_sb} & ~{rd_on_clear_combined, rs_on_clear_combined});
+  wire depend_on_score = |{rd_depend_on_score, rs_depend_on_score};
 
-  // condense source reg matches for each src port into a single bit per score port
-  logic [num_score_port_p-1:0] rs_depend_on_score_any;
-  for (genvar i = 0; i < num_score_port_p; i++) begin
-    assign rs_depend_on_score_any[i] = |rs_depend_on_score[i];
-  end
+  assign dependency_o = depend_on_sb | (depend_on_score & score_i & allow_zero);
 
-  wire [num_score_port_p-1:0] depend_on_score = rd_depend_on_score | rs_depend_on_score_any;
-
-  assign dependency_o = depend_on_sb | |(depend_on_score & score_i & allow_zero);
 
 
   // synopsys translate_off
-  /*
   always_ff @ (negedge clk_i) begin
     if (~reset_i) begin
-      assert((score_combined & clear_combined) == '0)
+      assert((score_bits & clear_combined) == '0)
         else $error("[BSG_ERROR] score and clear on the same id cannot happen.");
     end
   end
-  */
   // synopsys translate_on
 
 
 endmodule
 
-`BSG_ABSTRACT_MODULE(scoreboard)
-
+`BSG_ABSTRACT_MODULE(scoreboard_OG)

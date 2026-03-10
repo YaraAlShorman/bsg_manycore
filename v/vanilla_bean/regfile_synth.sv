@@ -51,8 +51,18 @@ module regfile_synth
     // x0 is tied to zero.
     logic [width_p-1:0] mem_r [els_p-1:1];
     
-    for (genvar i = 0; i < num_rs_p; i++)
-      assign r_data_o[i] = (r_addr_r[i] == '0)? '0 : mem_r[r_addr_r[i]];
+    for (genvar i = 0; i < num_rs_p; i++) begin
+
+      // if address being read matches a write in the same cycle,
+      // return data from write port (port 1 has priority over port 0).
+      // otherwise, read normally.
+
+      assign r_data_o[i] = 
+        (num_ws_p > 1 && w2_v_i && (r_addr_r[i] == w2_addr_i) && (w2_addr_i != '0)) ? w2_data_i :
+        (w_v_i && (r_addr_r[i] == w_addr_i) && (w_addr_i != '0)) ? w_data_i :
+        ((r_addr_r[i] == '0) ? '0 : mem_r[r_addr_r[i]]);
+
+    end
 
     always_ff @ (posedge clk_i) begin
 
@@ -72,10 +82,20 @@ module regfile_synth
     // x0 is not tied to zero.
     logic [width_p-1:0] mem_r [els_p-1:0];
    
-    for (genvar i = 0; i < num_rs_p; i++)
-      assign r_data_o[i] = mem_r[r_addr_r[i]];
+    for (genvar i = 0; i < num_rs_p; i++) begin
 
-    always_ff @ (posedge clk_i)
+      // if address being read matches a write in the same cycle,
+      // return data from write port (port 1 has priority over port 0).
+      // otherwise, read normally.
+
+      assign r_data_o[i] = 
+        (num_ws_p > 1 && w2_v_i && (r_addr_r[i] == w2_addr_i)) ? w2_data_i :
+        (w_v_i && (r_addr_r[i] == w_addr_i)) ? w_data_i :
+        mem_r[r_addr_r[i]];
+
+    end
+
+    always_ff @ (posedge clk_i) begin
 
       // wb port 1
       if (w_v_i)
@@ -84,8 +104,9 @@ module regfile_synth
       // wb port 2 (fp regfile only)
       // allow port 2 to overwrite port 1 if same addr
       if (num_ws_p > 1) begin
-        if (w2_v_i)
+        if (w2_v_i) begin
           mem_r[w2_addr_i] <= w2_data_i;
+        end
       end
     end
   end
@@ -93,3 +114,4 @@ module regfile_synth
 endmodule
 
 `BSG_ABSTRACT_MODULE(regfile_synth)
+
