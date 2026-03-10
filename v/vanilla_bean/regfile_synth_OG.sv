@@ -8,7 +8,7 @@
 
 `include "bsg_defines.sv"
 
-module regfile_synth
+module regfile_synth_OG
   #(`BSG_INV_PARAM(width_p)
     , `BSG_INV_PARAM(els_p)
     , `BSG_INV_PARAM(num_rs_p)
@@ -69,4 +69,4 @@ module regfile_synth
 
 endmodule
 
-`BSG_ABSTRACT_MODULE(regfile_synth)
+`BSG_ABSTRACT_MODULE(regfile_synth_OG)
