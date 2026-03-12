@@ -112,12 +112,6 @@ module vanilla_core
     , input [y_cord_width_p-1:0] global_y_i
   );
 
-  
-
-  // NEW LOCALPARAMS
-  localparam num_score_ports_lp = 2;
-  localparam num_clear_ports_lp = 2;
-
 
 
   // reset edge down detect
@@ -317,13 +311,9 @@ module vanilla_core
 
   // FP regfile
   //
-  logic float_rf_mem_wen;
-  logic [reg_addr_width_lp-1:0] float_rf_mem_waddr;
-  logic [fpu_recoded_data_width_gp-1:0] float_rf_mem_wdata;
-
-  logic float_rf_compute_wen;
-  logic [reg_addr_width_lp-1:0] float_rf_compute_waddr;
-  logic [fpu_recoded_data_width_gp-1:0] float_rf_compute_wdata;
+  logic float_rf_wen;
+  logic [reg_addr_width_lp-1:0] float_rf_waddr;
+  logic [fpu_recoded_data_width_gp-1:0] float_rf_wdata;
  
   logic [2:0] float_rf_read;
   logic [2:0][fpu_recoded_data_width_gp-1:0] float_rf_rdata;
@@ -332,19 +322,19 @@ module vanilla_core
     .width_p(fpu_recoded_data_width_gp)
     ,.els_p(RV32_reg_els_gp)
     ,.num_rs_p(3)
-    ,.num_ws_p(2) // number of writeback ports
+    ,.num_ws_p(1)
     ,.x0_tied_to_zero_p(0)
   ) float_rf (
     .clk_i(clk_i)
     ,.reset_i(reset_i)
 
-    ,.w_v_i(float_rf_mem_wen)
-    ,.w_addr_i(float_rf_mem_waddr)
-    ,.w_data_i(float_rf_mem_wdata)
+    ,.w_v_i(float_rf_wen)
+    ,.w_addr_i(float_rf_waddr)
+    ,.w_data_i(float_rf_wdata)
 
-    ,.w2_v_i(float_rf_compute_wen)
-    ,.w2_addr_i(float_rf_compute_waddr)
-    ,.w2_data_i(float_rf_compute_wdata)
+    ,.w2_v_i()
+    ,.w2_addr_i()
+    ,.w2_data_i()
 
     ,.r_v_i(float_rf_read)
     ,.r_addr_i({instruction[31:27], instruction.rs2, instruction.rs1})
@@ -355,17 +345,17 @@ module vanilla_core
   // FP scoreboard
   //
   logic float_dependency;
-  logic [num_score_ports_lp-1:0] float_sb_score;
-  logic [num_score_ports_lp-1:0][reg_addr_width_lp-1:0] float_sb_score_id;
-  logic [num_clear_ports_lp-1:0] float_sb_clear;
-  logic [num_clear_ports_lp-1:0][reg_addr_width_lp-1:0] float_sb_clear_id;
+  logic float_sb_score;
+  logic [reg_addr_width_lp-1:0] float_sb_score_id;
+  logic float_sb_clear;
+  logic [reg_addr_width_lp-1:0] float_sb_clear_id;
 
   scoreboard #(
     .els_p(RV32_reg_els_gp)
     ,.x0_tied_to_zero_p(0)
     ,.num_src_port_p(3)
-    ,.num_clear_port_p(num_clear_ports_lp)
-    ,.num_score_port_p(num_score_ports_lp)
+    ,.num_clear_port_p(1)
+    ,.num_score_port_p(1)
   ) float_sb (
     .clk_i(clk_i)
     ,.reset_i(reset_i)
@@ -553,37 +543,37 @@ module vanilla_core
     ,.sel_i(select_rs1_to_fp_exe)
     ,.data_o(frs1_select_val)
   );
-
-  logic [1:0] frs1_forward_v;
-  logic [1:0] frs2_forward_v;
-  logic [1:0] frs3_forward_v;
+  
+  logic frs1_forward_v;
+  logic frs2_forward_v;
+  logic frs3_forward_v;
   logic [fpu_recoded_data_width_gp-1:0] frs1_to_fp_exe;
   logic [fpu_recoded_data_width_gp-1:0] frs2_to_fp_exe;
   logic [fpu_recoded_data_width_gp-1:0] frs3_to_fp_exe;
 
   bsg_mux #(
-    .els_p(3)
+    .els_p(2)
     ,.width_p(fpu_recoded_data_width_gp)
   ) frs1_fwd_mux (
-    .data_i({float_rf_compute_wdata, float_rf_mem_wdata, frs1_select_val})
+    .data_i({float_rf_wdata, frs1_select_val})
     ,.sel_i(frs1_forward_v)
     ,.data_o(frs1_to_fp_exe)
   );
 
   bsg_mux #(
-    .els_p(3)
+    .els_p(2)
     ,.width_p(fpu_recoded_data_width_gp)
   ) frs2_fwd_mux (
-    .data_i({float_rf_compute_wdata, float_rf_mem_wdata, float_rf_rdata[1]})
+    .data_i({float_rf_wdata, float_rf_rdata[1]})
     ,.sel_i(frs2_forward_v)
     ,.data_o(frs2_to_fp_exe)
   );
 
   bsg_mux #(
-    .els_p(3)
+    .els_p(2)
     ,.width_p(fpu_recoded_data_width_gp)
   ) frs3_fwd_mux (
-    .data_i({float_rf_compute_wdata, float_rf_mem_wdata, float_rf_rdata[2]})
+    .data_i({float_rf_wdata, float_rf_rdata[2]})
     ,.sel_i(frs3_forward_v)
     ,.data_o(frs3_to_fp_exe)
   );
@@ -1377,19 +1367,13 @@ module vanilla_core
   wire id_rs2_equal_wb_rd = (id_rs2 == wb_ctrl_r.rd_addr);
 
   // stall_depend_long_op (idiv, fdiv, remote_load, atomic)
-  // int clear-now wire
   wire rs1_sb_clear_now = id_r.decode.read_rs1 & (id_rs1 == int_sb_clear_id) & int_sb_clear & id_rs1_non_zero; 
-  // fp clear-now wire, check if either port 0 and port 1 are clearing
-  wire frs2_sb_clear_now = id_r.decode.read_frs2 & 
-                           ((id_rs2 == float_sb_clear_id[0]) & float_sb_clear[0]) |
-                           ((id_rs2 == float_sb_clear_id[1]) & float_sb_clear[1]);
+  wire frs2_sb_clear_now = id_r.decode.read_frs2 & (id_rs2 == float_sb_clear_id) & float_sb_clear;
 
   assign stall_depend_long_op = (int_dependency | float_dependency)
     | (id_r.decode.is_fp_op
-        ? frs2_sb_clear_now
-        : rs1_sb_clear_now);
-//        ? rs1_sb_clear_now
-//        : frs2_sb_clear_now);
+        ? rs1_sb_clear_now
+        : frs2_sb_clear_now);
   
 
   // stall_depend_local_load (lw, flw, lr, lr.aq)
@@ -1513,34 +1497,10 @@ module vanilla_core
 
   // FP_EXE forwarding mux control logic
   //
-  // 2'b00: regfile
-  // 2'b01: memory wb (port 0)
-  // 2'b10: compute wb (port 1)
   assign select_rs1_to_fp_exe = id_r.decode.read_rs1;
-
-  // frs1
-  // checking whether mem or compute path has data, otherwise access regfile
-  wire frs1_match_mem = (id_rs1 == float_rf_mem_waddr) & float_rf_mem_wen;
-  wire frs1_match_compute = (id_rs1 == float_rf_compute_waddr) & float_rf_compute_wen;
-  assign frs1_forward_v = ~id_r.decode.read_frs1 ? 2'b00 :
-                          frs1_match_compute     ? 2'b10 : // compute priority
-                          frs1_match_mem         ? 2'b01 : 2'b00;
-
-  // frs2
-  // checking whether mem or compute path has data, otherwise access regfile
-  wire frs2_match_mem = (id_rs2 == float_rf_mem_waddr) & float_rf_mem_wen;
-  wire frs2_match_compute = (id_rs2 == float_rf_compute_waddr) & float_rf_compute_wen;
-  assign frs2_forward_v = ~id_r.decode.read_frs2 ? 2'b00 :
-                          frs2_match_compute     ? 2'b10 : // compute priority
-                          frs2_match_mem         ? 2'b01 : 2'b00;
-
-  // frs3
-  // checking whether mem or compute path has data, otherwise access regfile
-  wire frs3_match_mem = (id_rs3 == float_rf_mem_waddr) & float_rf_mem_wen;
-  wire frs3_match_compute = (id_rs3 == float_rf_compute_waddr) & float_rf_compute_wen;
-  assign frs3_forward_v = ~id_r.decode.read_frs3 ? 2'b00 :
-                          frs3_match_compute     ? 2'b10 : // compute priority
-                          frs3_match_mem         ? 2'b01 : 2'b00;
+  assign frs1_forward_v = id_r.decode.read_frs1 & (id_rs1 == float_rf_waddr) & float_rf_wen;
+  assign frs2_forward_v = id_r.decode.read_frs2 & (id_rs2 == float_rf_waddr) & float_rf_wen;
+  assign frs3_forward_v = id_r.decode.read_frs3 & (id_rs3 == float_rf_waddr) & float_rf_wen;
 
   // EXE forwarding mux control logic
   // [0] = exe
@@ -1734,13 +1694,10 @@ module vanilla_core
   assign fdiv_fsqrt_v_li = fdiv_fsqrt_in_fp_exe & ~stall_all;
 
   // FP scoreboard set logic
-  // (port 0) mem: remote FP load
-  assign float_sb_score[0] = ~stall_all & float_remote_load_in_exe;
-  assign float_sb_score_id[0] = exe_r.instruction.rd;
-
-  // (port 1) compute: FDIV/FSQRT
-  assign float_sb_score[1] = ~stall_all & fdiv_fsqrt_in_fp_exe;
-  assign float_sb_score_id[1] = fp_exe_ctrl_r.rd;
+  assign float_sb_score = ~stall_all & (fdiv_fsqrt_in_fp_exe | float_remote_load_in_exe);
+  assign float_sb_score_id = fdiv_fsqrt_in_fp_exe
+    ? fp_exe_ctrl_r.rd
+    : exe_r.instruction.rd;
 
 
   // EXE,FP_EXE -> MEM
@@ -1943,85 +1900,66 @@ module vanilla_core
 
     float_remote_load_resp_yumi_o = 1'b0;
     fdiv_fsqrt_yumi_li = 1'b0;
+
+    float_rf_wen = 1'b0;
+    float_rf_waddr = '0;
+    float_rf_wdata = '0;
     select_remote_flw = 1'b0;
 
-    // fp regfile wb port 0 (memory: local FLW, remote resp)
-    float_rf_mem_wen = 1'b0;
-    float_rf_mem_waddr = '0;
-    float_rf_mem_wdata = '0;
-
-    // fp regfile wb port 1 (compute: FPU, FDIV, FSQRT)
-    // will win WAW conflicts bc port 1 overwrites port 0
-    float_rf_compute_wen = 1'b0;
-    float_rf_compute_waddr = '0;
-    float_rf_compute_wdata = '0;
-
-    // float_sb_clear = 1'b0;
-    // float_sb_clear_id = float_remote_load_resp_rd_i;
-    float_sb_clear = 2'b00; // 2-bit for 2 clear ports
-    float_sb_clear_id = '0; // assigned later
+    float_sb_clear = 1'b0;
+    float_sb_clear_id = float_remote_load_resp_rd_i;
 
     fcsr_fflags_v_li[1] = 1'b0;
     fcsr_fflags_li[1] = fpu_float_fflags_lo;
     
 
-    // --------------------------------
-    // memory: local FLW, remote resp
-    // --------------------------------
-
     if (float_remote_load_resp_force_i) begin
       select_remote_flw = 1'b1;
-      float_rf_mem_wen = 1'b1;
-      float_rf_mem_waddr = float_remote_load_resp_rd_i;
-      float_rf_mem_wdata = flw_recoded_data;
+      float_rf_wen = 1'b1;
+      float_rf_waddr = float_remote_load_resp_rd_i;
+      float_rf_wdata = flw_recoded_data;
       float_remote_load_resp_yumi_o = 1'b1;
+      stall_remote_flw_wb = flw_wb_ctrl_r.valid | fpu_float_v_lo;
 
-      // CHANGED: stall only if port 0 busy 
-      // stall_remote_flw_wb = flw_wb_ctrl_r.valid | fpu_float_v_lo;
-      stall_remote_flw_wb = flw_wb_ctrl_r.valid;
-
-      float_sb_clear[0] = 1'b1;
-      float_sb_clear_id[0] = float_remote_load_resp_rd_i;
+      float_sb_clear = 1'b1;
+      float_sb_clear_id = float_remote_load_resp_rd_i;
     end
     else if (flw_wb_ctrl_r.valid) begin
       select_remote_flw = 1'b0;
-      float_rf_mem_wen = 1'b1;
-      float_rf_mem_waddr = flw_wb_ctrl_r.rd_addr;
-      float_rf_mem_wdata = flw_recoded_data; 
+      float_rf_wen = 1'b1;
+      float_rf_waddr = flw_wb_ctrl_r.rd_addr;
+      float_rf_wdata = flw_recoded_data; 
     end
-    else if (float_remote_load_resp_v_i) begin
-      select_remote_flw = 1'b1;
-      float_rf_mem_wen = 1'b1;
-      float_rf_mem_waddr = float_remote_load_resp_rd_i;
-      float_rf_mem_wdata = flw_recoded_data;
-      float_remote_load_resp_yumi_o = 1'b1;
-
-      float_sb_clear[0] = 1'b1;
-      float_sb_clear_id[0] = float_remote_load_resp_rd_i;
-    end
-
-    // --------------------------------
-    // compute: FPU, FDIV, FSQRT
-    // --------------------------------
-
-    if (fpu_float_v_lo) begin
-      float_rf_compute_wen = 1'b1;
-      float_rf_compute_waddr = fpu_float_rd_lo;
-      float_rf_compute_wdata = fpu_float_result_lo;
+    else if (fpu_float_v_lo) begin
+      float_rf_wen = 1'b1;
+      float_rf_waddr = fpu_float_rd_lo;
+      float_rf_wdata = fpu_float_result_lo;
       fcsr_fflags_v_li[1] = 1'b1;
       fcsr_fflags_li[1] = fpu_float_fflags_lo;
     end
-    else if (fdiv_fsqrt_v_lo) begin
-      fdiv_fsqrt_yumi_li = 1'b1;
-      float_rf_compute_wen = 1'b1;
-      float_rf_compute_waddr = fdiv_fsqrt_rd_lo;
-      float_rf_compute_wdata = fdiv_fsqrt_result_lo;
+    else begin
+      if (fdiv_fsqrt_v_lo) begin
+        fdiv_fsqrt_yumi_li = 1'b1;
+        float_rf_wen = 1'b1;
+        float_rf_waddr = fdiv_fsqrt_rd_lo;
+        float_rf_wdata = fdiv_fsqrt_result_lo;
 
-      float_sb_clear[1] = 1'b1;
-      float_sb_clear_id[1] = fdiv_fsqrt_rd_lo;
+        float_sb_clear = 1'b1;
+        float_sb_clear_id = fdiv_fsqrt_rd_lo;
 
-      fcsr_fflags_v_li[1] = 1'b1;
-      fcsr_fflags_li[1] = fdiv_fsqrt_fflags_lo;
+        fcsr_fflags_v_li[1] = 1'b1;
+        fcsr_fflags_li[1] = fdiv_fsqrt_fflags_lo;
+      end
+      else if (float_remote_load_resp_v_i) begin
+        select_remote_flw = 1'b1;
+        float_rf_wen = 1'b1;
+        float_rf_waddr = float_remote_load_resp_rd_i;
+        float_rf_wdata = flw_recoded_data;
+        float_remote_load_resp_yumi_o = 1'b1;
+
+        float_sb_clear = 1'b1;
+        float_sb_clear_id = float_remote_load_resp_rd_i;
+      end
     end
   end
 

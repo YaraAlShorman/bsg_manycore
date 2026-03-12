@@ -48,12 +48,10 @@ module vanilla_exe_bubble_classifier
    ,input [RV32_Iimm_width_gp-1:0] mem_addr_op2
 
    ,input int_sb_clear
-   // modified for dual-issue
-   ,input [1:0] float_sb_clear
+   ,input float_sb_clear
    ,input [RV32_reg_addr_width_gp-1:0] int_sb_clear_id
-   // modified for dual-issue
-   ,input [1:0][RV32_reg_addr_width_gp-1:0] float_sb_clear_id
-   
+   ,input [RV32_reg_addr_width_gp-1:0] float_sb_clear_id
+
    ,input id_signals_s id_r
    ,input exe_signals_s exe_r
    ,input fp_exe_ctrl_signals_s fp_exe_ctrl_r

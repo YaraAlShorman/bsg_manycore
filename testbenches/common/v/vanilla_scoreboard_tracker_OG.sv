@@ -18,9 +18,9 @@ module vanilla_scoreboard_tracker
    ,input [RV32_Iimm_width_gp-1:0] mem_addr_op2
 
    ,input int_sb_clear
-   ,input [1:0] float_sb_clear
+   ,input float_sb_clear
    ,input [reg_addr_width_lp-1:0] int_sb_clear_id
-   ,input [1:0][reg_addr_width_lp-1:0] float_sb_clear_id
+   ,input [reg_addr_width_lp-1:0] float_sb_clear_id
 
    ,input id_signals_s id_r
    ,input exe_signals_s exe_r
@@ -133,50 +133,35 @@ module vanilla_scoreboard_tracker
         if (~stall_id & ~stall_all & ~flush & (id_r.decode.is_fp_op & (id_r.fp_decode.is_fdiv_op | id_r.fp_decode.is_fsqrt_op)) & (id_rd == i)) begin
           float_sb_r[i].fdiv_fsqrt <= 1'b1;
         end
-        // modified for dual issue
-        // check both ports for a clear
-        else if ((float_sb_clear[0] & (float_sb_clear_id[0] == i)) |
-                 (float_sb_clear[1] & (float_sb_clear_id[1] == i))) begin
+        else if (float_sb_clear & (float_sb_clear_id == i)) begin
           float_sb_r[i].fdiv_fsqrt <= 1'b0;
         end
         // remote flw dram
         if (~stall_id & ~stall_all & ~flush & remote_flw_dram_in_id & (id_rd == i)) begin
           float_sb_r[i].remote_dram_load <= 1'b1;
         end
-        // modified for dual issue
-        // check both ports for a clear
-        else if ((float_sb_clear[0] & (float_sb_clear_id[0] == i)) |
-                 (float_sb_clear[1] & (float_sb_clear_id[1] == i))) begin
+        else if (float_sb_clear & (float_sb_clear_id == i)) begin
           float_sb_r[i].remote_dram_load <= 1'b0;
         end
         // remote flw global
         if (~stall_id & ~stall_all & ~flush & remote_flw_global_in_id & (id_rd == i)) begin
           float_sb_r[i].remote_global_load <= 1'b1;
         end
-        // modified for dual issue
-        // check both ports for a clear
-        else if ((float_sb_clear[0] & (float_sb_clear_id[0] == i)) |
-                 (float_sb_clear[1] & (float_sb_clear_id[1] == i))) begin
+        else if (float_sb_clear & (float_sb_clear_id == i)) begin
           float_sb_r[i].remote_global_load <= 1'b0;
         end
         // remote flw group
         if (~stall_id & ~stall_all & ~flush & remote_flw_group_in_id & (id_rd == i)) begin
           float_sb_r[i].remote_group_load <= 1'b1;
         end
-        // modified for dual issue
-        // check both ports for a clear
-        else if ((float_sb_clear[0] & (float_sb_clear_id[0] == i)) |
-                 (float_sb_clear[1] & (float_sb_clear_id[1] == i))) begin
+        else if (float_sb_clear & (float_sb_clear_id == i)) begin
           float_sb_r[i].remote_group_load <= 1'b0;
         end
         // remote seq flw dram
         if (~stall_id & ~stall_all & ~flush & remote_seq_flw_dram_in_id & (id_rd == i)) begin
           float_sb_r[i].remote_dram_seq_load <= 1'b1;
         end
-        // modified for dual issue
-        // check both ports for a clear
-        else if ((float_sb_clear[0] & (float_sb_clear_id[0] == i)) |
-                 (float_sb_clear[1] & (float_sb_clear_id[1] == i))) begin
+        else if (float_sb_clear & (float_sb_clear_id == i)) begin
           float_sb_r[i].remote_dram_seq_load <= 1'b0;
         end
       end
