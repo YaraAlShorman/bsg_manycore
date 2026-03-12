@@ -1381,8 +1381,8 @@ module vanilla_core
   wire rs1_sb_clear_now = id_r.decode.read_rs1 & (id_rs1 == int_sb_clear_id) & int_sb_clear & id_rs1_non_zero; 
   // fp clear-now wire, check if either port 0 and port 1 are clearing
   wire frs2_sb_clear_now = id_r.decode.read_frs2 & 
-                           ((id_rs2 == float_sb_clear_id[0]) & float_sb_clear[0]) |
-                           ((id_rs2 == float_sb_clear_id[1]) & float_sb_clear[1]);
+                           (((id_rs2 == float_sb_clear_id[0]) & float_sb_clear[0]) |
+                            ((id_rs2 == float_sb_clear_id[1]) & float_sb_clear[1]));
 
   assign stall_depend_long_op = (int_dependency | float_dependency)
     | (id_r.decode.is_fp_op

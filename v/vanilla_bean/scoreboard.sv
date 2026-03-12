@@ -256,7 +256,8 @@ module scoreboard
 
   wire [num_score_port_p-1:0] depend_on_score = rd_depend_on_score | rs_depend_on_score_any;
 
-  assign dependency_o = depend_on_sb | |(depend_on_score & score_i & allow_zero);
+  // assign dependency_o = depend_on_sb | |(depend_on_score & score_i & allow_zero);
+  assign dependency_o = depend_on_sb;
 
 
   // synopsys translate_off
