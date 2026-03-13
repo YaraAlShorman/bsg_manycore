@@ -135,8 +135,10 @@ module vanilla_core
   // ctrl signals set to zero when reset_i is high.
   // data signals are not reset to zero.
   logic id_en, exe_en, mem_ctrl_en, mem_data_en,
-        fp_exe_ctrl_en, fp_exe_data_en, flw_wb_ctrl_en, flw_wb_data_en;
+        fp_exe_ctrl_en, fp_exe_data_en, flw_wb_ctrl_en, flw_wb_data_en,
+        fp_id_en;  // separate enable for parallel FP ID pipeline
   id_signals_s id_r, id_n;
+  id_signals_s fp_id_r, fp_id_n;  // parallel FP instruction tracking in ID stage
   exe_signals_s exe_r, exe_n;
   mem_ctrl_signals_s mem_ctrl_r, mem_ctrl_n;
   mem_data_signals_s mem_data_r, mem_data_n;
@@ -157,20 +159,20 @@ module vanilla_core
   logic [pc_width_lp-1:0] icache_w_pc;
   logic [data_width_p-1:0] icache_winstr;
 
-  logic [pc_width_lp-1:0] pc_n, pc_r;
-  instruction_s instruction;
+  logic [pc_width_lp-1:0] pc_n, pc_r_0, pc_r_1;
+  instruction_s instruction_0, instruction_1;
   logic icache_miss;
   logic icache_flush;
   logic icache_flush_r_lo;
-  logic icache_branch_predicted_taken_lo;
+  logic icache_branch_predicted_taken_lo_0, icache_branch_predicted_taken_lo_1;
 
-  logic [pc_width_lp-1:0] jalr_prediction; 
-  logic [pc_width_lp-1:0] pred_or_jump_addr; 
+  logic [pc_width_lp-1:0] jalr_prediction_0, jalr_prediction_1; 
+  logic [pc_width_lp-1:0] pred_or_jump_addr_0, pred_or_jump_addr_1; 
  
 //==================================================== 
 // CHANGE BACK TO ICACHE IF NEEDED. OR ANOTHER NAME
 //====================================================
-  icache_OG #(
+  icache #(
     .icache_tag_width_p(icache_tag_width_p)
     ,.icache_entries_p(icache_entries_p)
     ,.icache_block_size_in_words_p(icache_block_size_in_words_p)
@@ -179,7 +181,7 @@ module vanilla_core
     ,.network_reset_i(network_reset_i)
     ,.reset_i(reset_i)
    
-    ,.v_i(icache_v_li)
+    ,.v_i(icache_v_li) // YARA needs to be fixed
     ,.w_i(icache_w_li)
     ,.flush_i(icache_flush)
     ,.read_pc_plus4_i(icache_read_pc_plus4_li)
@@ -188,14 +190,26 @@ module vanilla_core
     ,.w_instr_i(icache_winstr)
 
     ,.pc_i(pc_n)
-    ,.jalr_prediction_i(jalr_prediction)
 
-    ,.instr_o(instruction)
-    ,.pred_or_jump_addr_o(pred_or_jump_addr)
-    ,.pc_r_o(pc_r)
+    // YARA added second output signal for all of the following ports
+    ,.jalr_prediction_0_i(jalr_prediction_0)
+    ,.jalr_prediction_1_i(jalr_prediction_1)
+
+    ,.instr0_o(instruction_0)
+    ,.instr1_o(instruction_1)
+
+    ,.pred_or_jump_addr0_o(pred_or_jump_addr_0)
+    ,.pred_or_jump_addr1_o(pred_or_jump_addr_1)
+    
+    ,.pc0_o(pc_r_0)
+    ,.pc1_o(pc_r_1)
+    
+    ,.branch_predicted_taken0_o(icache_branch_predicted_taken_lo_0)
+    ,.branch_predicted_taken1_o(icache_branch_predicted_taken_lo_1)
+
+    // YARA no change to cache miss and flush signals
     ,.icache_miss_o(icache_miss)
     ,.icache_flush_r_o(icache_flush_r_lo)
-    ,.branch_predicted_taken_o(icache_branch_predicted_taken_lo)
   );
 
   wire [pc_width_lp-1:0] pc_plus4 = pc_r + 1'b1;
@@ -215,20 +229,97 @@ module vanilla_core
 
   // debug pc
   // synopsys translate_off
-  wire [data_width_p-1:0] if_pc = {{(data_width_p-pc_width_lp-2){1'b0}}, pc_r, 2'b00};
+  wire [data_width_lp-1:0] if_pc = {{(data_width_p-pc_width_lp-2){1'b0}}, pc_r, 2'b00};
   wire [data_width_p-1:0] id_pc = (id_r.pc_plus4 - 'd4);
   wire [data_width_p-1:0] exe_pc = (exe_r.pc_plus4 - 'd4);
   // synopsys translate_on
 
-  // instruction decode
-  //
-  decode_s decode;
-  fp_decode_s fp_decode;
+  // ============================================================================
+  // DUAL-ISSUE IBUFFER (between icache and decode)
+  // ============================================================================
+  
+  logic ibuffer_v_li, ibuffer_ready_li;
+  logic ibuffer_int_v_lo, ibuffer_fp_v_lo;
+  logic ibuffer_int_yum_li, ibuffer_fp_yum_li;
+  logic [RV32_instr_width_gp-1:0] ibuffer_instr_int, ibuffer_instr_fp;
+  logic [pc_width_lp-1:0] ibuffer_pc0_o, ibuffer_pc1_o;
+  logic [pc_width_lp-1:0] ibuffer_pred_or_jump_addr0, ibuffer_pred_or_jump_addr1;
+  logic ibuffer_branch_predicted_taken0, ibuffer_branch_predicted_taken1;
 
-  cl_decode decode0 (
-    .instruction_i(instruction)
-    ,.decode_o(decode)
-    ,.fp_decode_o(fp_decode)
+  dual_issue_ibuffer #(
+    .pc_width_lp(pc_width_lp)
+  ) ibuffer0 (
+    .clk_i(clk_i)
+    ,.reset_i(reset_i)
+    
+    ,.v_i(icache_v_li)
+    ,.ready_o(ibuffer_ready_li)
+    
+    ,.int_yum_i(ibuffer_int_yum_li)
+    ,.int_v_o(ibuffer_int_v_lo)
+    
+    ,.fp_yum_i(ibuffer_fp_yum_li)
+    ,.fp_v_o(ibuffer_fp_v_lo)
+    
+    ,.instr0_i(instruction_0)
+    ,.instr1_i(instruction_1)
+    
+    ,.pc0_i(pc_r_0)
+    ,.pc1_i(pc_r_1)
+    ,.pred_or_jump_addr0_i(pred_or_jump_addr_0)
+    ,.pred_or_jump_addr1_i(pred_or_jump_addr_1)
+    ,.branch_predicted_taken0_i(icache_branch_predicted_taken_lo_0)
+    ,.branch_predicted_taken1_i(icache_branch_predicted_taken_lo_1)
+    
+    ,.pc0_o(ibuffer_pc0_o)
+    ,.pc1_o(ibuffer_pc1_o)
+    ,.pred_or_jump_addr0_o(ibuffer_pred_or_jump_addr0)
+    ,.pred_or_jump_addr1_o(ibuffer_pred_or_jump_addr1)
+    ,.branch_predicted_taken0_o(ibuffer_branch_predicted_taken0)
+    ,.branch_predicted_taken1_o(ibuffer_branch_predicted_taken1)
+    
+    ,.instr_int_o(ibuffer_instr_int)
+    ,.instr_fp_o(ibuffer_instr_fp)
+  );
+
+  // ============================================================================
+  // DUAL INSTRUCTION DECODE (INT and FP paths)
+  // ============================================================================
+  
+  instruction_s ibuffer_instr_int_s, ibuffer_instr_fp_s;
+  decode_s decode_int;
+  fp_decode_s fp_decode_int;
+  decode_s decode_fp;
+  fp_decode_s fp_decode_fp;
+
+  assign ibuffer_instr_int_s = ibuffer_instr_int;
+  assign ibuffer_instr_fp_s = ibuffer_instr_fp;
+
+  // Integer instruction decode
+  cl_decode decode_int_inst (
+    .instruction_i(ibuffer_instr_int_s)
+    ,.decode_o(decode_int)
+    ,.fp_decode_o(fp_decode_int)
+  );
+
+  // FP instruction decode
+  cl_decode decode_fp_inst (
+    .instruction_i(ibuffer_instr_fp_s)
+    ,.decode_o(decode_fp)
+    ,.fp_decode_o(fp_decode_fp)
+  );
+
+  // FP-specific decode for FP instructions going to FP pipeline
+  logic read_frs1_fp, read_frs2_fp, read_frs3_fp, write_frd_fp;
+
+  fp_cl_decode fp_decode_specialized (
+    .instruction_i(ibuffer_instr_fp_s)
+    ,.is_fp_op_o()
+    ,.read_frs1_o(read_frs1_fp)
+    ,.read_frs2_o(read_frs2_fp)
+    ,.read_frs3_o(read_frs3_fp)
+    ,.write_frd_o(write_frd_fp)
+    ,.fp_decode_o(fp_decode_fp)
   ); 
 
 
@@ -238,6 +329,78 @@ module vanilla_core
   //                          //
   //////////////////////////////
 
+  // Instruction routing: select between int and fp instruction paths
+  // Can issue both simultaneously if they're different types and valid
+  instruction_s instruction_id;  // selected instruction for ID stage
+  instruction_s instruction_id_fp;  // separate FP instruction for parallel execution
+  decode_s decode_id;
+  decode_s decode_id_fp;
+  fp_decode_s fp_decode_id;
+  fp_decode_s fp_decode_id_fp;
+  logic id_instruction_is_fp;
+  logic id_instruction_fp_valid;  // track if FP instruction is valid in ID
+
+  always_comb begin
+    // Default: no instructions
+    instruction_id = '0;
+    instruction_id_fp = '0;
+    decode_id = '0;
+    decode_id_fp = '0;
+    fp_decode_id = '0;
+    fp_decode_id_fp = '0;
+    id_instruction_is_fp = 1'b0;
+    id_instruction_fp_valid = 1'b0;
+    ibuffer_int_yum_li = 1'b0;
+    ibuffer_fp_yum_li = 1'b0;
+
+    // Case 1: Both INT and FP instructions available (dual issue)
+    if (ibuffer_int_v_lo && ibuffer_fp_v_lo) begin
+      // Issue both simultaneously
+      instruction_id = ibuffer_instr_int_s;       // INT instruction to main path
+      decode_id = decode_int;
+      fp_decode_id = fp_decode_int;
+      id_instruction_is_fp = 1'b0;
+      
+      instruction_id_fp = ibuffer_instr_fp_s;     // FP instruction to parallel path
+      decode_id_fp = decode_fp;
+      fp_decode_id_fp = fp_decode_fp;
+      id_instruction_fp_valid = 1'b1;
+      
+      ibuffer_int_yum_li = ~stall_id & ~stall_all & ~flush;
+      ibuffer_fp_yum_li = ~stall_id & ~stall_all & ~flush;
+    end
+    // Case 2: Only FP instruction available
+    else if (ibuffer_fp_v_lo) begin
+      instruction_id = ibuffer_instr_fp_s;
+      decode_id = decode_fp;
+      fp_decode_id = fp_decode_fp;
+      id_instruction_is_fp = 1'b1;
+      id_instruction_fp_valid = 1'b0;
+      
+      ibuffer_fp_yum_li = ~stall_id & ~stall_all & ~flush;
+      ibuffer_int_yum_li = 1'b0;
+    end
+    // Case 3: Only INT instruction available
+    else if (ibuffer_int_v_lo) begin
+      instruction_id = ibuffer_instr_int_s;
+      decode_id = decode_int;
+      fp_decode_id = fp_decode_int;
+      id_instruction_is_fp = 1'b0;
+      id_instruction_fp_valid = 1'b0;
+      
+      ibuffer_int_yum_li = ~stall_id & ~stall_all & ~flush;
+      ibuffer_fp_yum_li = 1'b0;
+    end
+    // Case 4: No instructions available
+    else begin
+      ibuffer_int_yum_li = 1'b0;
+      ibuffer_fp_yum_li = 1'b0;
+    end
+  end
+
+  // Update icache_v_li to only request when ibuffer is ready
+  assign icache_v_li = ibuffer_ready_li;
+
   bsg_dff_reset_en #(
     .width_p($bits(id_signals_s))
   ) id_pipeline (
@@ -246,6 +409,17 @@ module vanilla_core
     ,.en_i(id_en)
     ,.data_i(id_n)
     ,.data_o(id_r)
+  );
+
+  // Parallel FP ID pipeline for dual-issue execution
+  bsg_dff_reset_en #(
+    .width_p($bits(id_signals_s))
+  ) fp_id_pipeline (
+    .clk_i(clk_i)
+    ,.reset_i(reset_i)
+    ,.en_i(fp_id_en)
+    ,.data_i(fp_id_n)
+    ,.data_o(fp_id_r)
   );
   
   // int regfile
@@ -276,7 +450,7 @@ module vanilla_core
     ,.w2_data_i()
 
     ,.r_v_i(int_rf_read)
-    ,.r_addr_i({instruction.rs2, instruction.rs1})
+    ,.r_addr_i({instruction_id.rs2, instruction_id.rs1})
     ,.r_data_o(int_rf_rdata)
   );
   
@@ -328,6 +502,11 @@ module vanilla_core
   logic [2:0] float_rf_read;
   logic [2:0][fpu_recoded_data_width_gp-1:0] float_rf_rdata;
 
+  // FP register file address selection: use FP instruction when dual-issuing
+  wire [reg_addr_width_lp-1:0] fp_rd_addr_rs1 = id_instruction_fp_valid ? instruction_id_fp.rs1 : instruction_id.rs1;
+  wire [reg_addr_width_lp-1:0] fp_rd_addr_rs2 = id_instruction_fp_valid ? instruction_id_fp.rs2 : instruction_id.rs2;
+  wire [4:0] fp_rd_addr_rs3 = id_instruction_fp_valid ? instruction_id_fp[31:27] : instruction_id[31:27];
+
   regfile #(
     .width_p(fpu_recoded_data_width_gp)
     ,.els_p(RV32_reg_els_gp)
@@ -347,7 +526,7 @@ module vanilla_core
     ,.w2_data_i(float_rf_compute_wdata)
 
     ,.r_v_i(float_rf_read)
-    ,.r_addr_i({instruction[31:27], instruction.rs2, instruction.rs1})
+    ,.r_addr_i({fp_rd_addr_rs3, fp_rd_addr_rs2, fp_rd_addr_rs1})
     ,.r_data_o(float_rf_rdata)
   );
 
@@ -1271,8 +1450,9 @@ module vanilla_core
     ? wb_ctrl_r.icache_miss
     : (~icache_miss | flush | reset_down);
 
-  assign icache_v_li = icache_v_i | ifetch_v_i
-    | (read_icache & ~reset_i & ~stall_all & ~(stall_id & ~flush));
+  // icache_v_li now controlled by ibuffer ready signal
+  assign icache_v_li = (icache_v_i | ifetch_v_i | (read_icache & ~reset_i & ~stall_all & ~(stall_id & ~flush)))
+                       & ibuffer_ready_li;
 
   assign icache_w_li = icache_v_i | ifetch_v_i;
 
@@ -1291,18 +1471,18 @@ module vanilla_core
   assign stall_icache_store = icache_v_i & icache_yumi_o;
 
 
-  // IF -> ID
+  // IF -> ID (from ibuffer)
   always_comb begin
     // common case
     id_n = '{
-      pc_plus4: {{(data_width_p-pc_width_lp-2){1'b0}}, pc_plus4, 2'b0},
-      pred_or_jump_addr: {{(data_width_p-pc_width_lp-2){1'b0}}, pred_or_jump_addr, 2'b0},
-      instruction: instruction,
-      decode: decode,
-      fp_decode: fp_decode,
+      pc_plus4: {{(data_width_p-pc_width_lp-2){1'b0}}, ibuffer_pc0_o + 1'b1, 2'b0},
+      pred_or_jump_addr: {{(data_width_p-pc_width_lp-2){1'b0}}, ibuffer_pred_or_jump_addr0, 2'b0},
+      instruction: instruction_id,
+      decode: decode_id,
+      fp_decode: fp_decode_id,
       icache_miss: 1'b0,
       valid: 1'b1,
-      branch_predicted_taken:  icache_branch_predicted_taken_lo
+      branch_predicted_taken: ibuffer_branch_predicted_taken0
     };
 
     if (stall_all) begin
@@ -1324,7 +1504,7 @@ module vanilla_core
       else if (icache_miss) begin
         id_en = 1'b1;
         id_n = '{
-          pc_plus4: {{(data_width_p-pc_width_lp-2){1'b0}}, pc_plus4, 2'b0},
+          pc_plus4: {{(data_width_p-pc_width_lp-2){1'b0}}, ibuffer_pc0_o + 1'b1, 2'b0},
           pred_or_jump_addr: '0,
           instruction: '0,
           decode: '0,
@@ -1341,14 +1521,72 @@ module vanilla_core
     end
   end
 
+  // FP ID pipeline control: load FP instruction when dual-issuing (id_instruction_fp_valid)
+  // This runs in parallel with the INT ID pipeline
+  always_comb begin
+    // Default: fp_id_n gets the INT/FP instruction for main path
+    // This is only used if id_instruction_fp_valid was true in previous cycle
+    fp_id_n = '{
+      pc_plus4: {{(data_width_p-pc_width_lp-2){1'b0}}, ibuffer_pc1_o + 1'b1, 2'b0},
+      pred_or_jump_addr: {{(data_width_p-pc_width_lp-2){1'b0}}, ibuffer_pred_or_jump_addr1, 2'b0},
+      instruction: instruction_id_fp,
+      decode: decode_id_fp,
+      fp_decode: fp_decode_id_fp,
+      icache_miss: 1'b0,
+      valid: id_instruction_fp_valid,
+      branch_predicted_taken: ibuffer_branch_predicted_taken1
+    };
 
-  // regfile read
+    if (stall_all) begin
+      fp_id_en = 1'b0;
+    end
+    else begin
+      if (reset_down | flush) begin
+        fp_id_en = 1'b1;
+        fp_id_n = '0;
+      end    
+      else if (stall_id & ~id_instruction_fp_valid) begin
+        // Only stall FP pipeline if not dual-issuing
+        fp_id_en = 1'b0;
+      end
+      else if (icache_miss_in_pipe | icache_flush_r_lo) begin
+        fp_id_en = 1'b1;
+        fp_id_n = '0;
+      end
+      else if (icache_miss) begin
+        fp_id_en = 1'b1;
+        fp_id_n = '{
+          pc_plus4: {{(data_width_p-pc_width_lp-2){1'b0}}, ibuffer_pc1_o + 1'b1, 2'b0},
+          pred_or_jump_addr: '0,
+          instruction: '0,
+          decode: '0,
+          fp_decode: '0,
+          icache_miss: 1'b1,
+          valid: 1'b0,
+          branch_predicted_taken: 1'b0
+        };
+      end
+      else begin
+        // common case: only enable if we have a valid FP instruction to issue
+        fp_id_en = id_instruction_fp_valid;
+      end
+    end
+  end
+  // Both INT and FP instructions may read simultaneously when dual-issuing
   wire rf_read_en = ~(stall_id | stall_all);
+  wire fp_rf_read_en = ~(stall_id | stall_all);  // FP instruction may also read when dual-issuing
+  
+  // INT register file reads from main path
   assign int_rf_read[0] = id_n.decode.read_rs1 & rf_read_en;
   assign int_rf_read[1] = id_n.decode.read_rs2 & rf_read_en;
-  assign float_rf_read[0] = id_n.decode.read_frs1 & rf_read_en;
-  assign float_rf_read[1] = id_n.decode.read_frs2 & rf_read_en;
-  assign float_rf_read[2] = id_n.decode.read_frs3 & rf_read_en;
+  
+  // FP register file reads from either main path (single FP) or dual-issue FP path
+  assign float_rf_read[0] = id_instruction_fp_valid ? fp_id_n.decode.read_frs1 & fp_rf_read_en 
+                                                      : id_n.decode.read_frs1 & rf_read_en;
+  assign float_rf_read[1] = id_instruction_fp_valid ? fp_id_n.decode.read_frs2 & fp_rf_read_en 
+                                                      : id_n.decode.read_frs2 & rf_read_en;
+  assign float_rf_read[2] = id_instruction_fp_valid ? fp_id_n.decode.read_frs3 & fp_rf_read_en 
+                                                      : id_n.decode.read_frs3 & rf_read_en;
 
   // helpful control signals;
   wire [reg_addr_width_lp-1:0] id_rs1 = id_r.instruction.rs1;
@@ -1689,15 +1927,19 @@ module vanilla_core
   assign remote_req_v_o = lsu_remote_req_v_lo & ~stall_all;
 
   // ID -> FP_EXE
+  // When dual-issuing, FP instruction comes from fp_id_r; otherwise from id_r
+  id_signals_s fp_source_instr;  // mux between id_r and fp_id_r
+  assign fp_source_instr = fp_id_r.valid ? fp_id_r : id_r;
+  
   frm_e fpu_rm;
-  assign fpu_rm = frm_e'((id_r.instruction.funct3 == eDYN)
+  assign fpu_rm = frm_e'((fp_source_instr.instruction.funct3 == eDYN)
     ? frm_r
-    : id_r.instruction.funct3);
+    : fp_source_instr.instruction.funct3);
 
   always_comb begin
     fp_exe_ctrl_n = '{
-      rd: id_r.instruction.rd,
-      fp_decode: id_r.fp_decode,
+      rd: fp_source_instr.instruction.rd,
+      fp_decode: fp_source_instr.fp_decode,
       rm: fpu_rm
     };
     fp_exe_data_n = '{
@@ -1711,7 +1953,11 @@ module vanilla_core
       fp_exe_data_en = 1'b0;
     end
     else begin
-      if (flush | stall_id | ~id_r.decode.is_fp_op) begin
+      // Check if source has a valid FP operation: either fp_id_r.valid and fp_id_r.decode.is_fp_op
+      // or (id_r.decode.is_fp_op and not dual-issuing, i.e., fp_id_r.valid is false)
+      wire has_valid_fp_op = fp_id_r.valid ? fp_id_r.decode.is_fp_op : id_r.decode.is_fp_op;
+      
+      if (flush | stall_id | ~has_valid_fp_op) begin
         // put nop in fp_exe.
         // we hold the data inputs steady in the case of a stall,
         // or if there is not a floating point operation
