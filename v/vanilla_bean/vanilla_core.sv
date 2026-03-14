@@ -159,14 +159,14 @@ module vanilla_core
   logic [pc_width_lp-1:0] icache_w_pc;
   logic [data_width_p-1:0] icache_winstr;
 
-  logic [pc_width_lp-1:0] pc_n, pc_r, pc_r_0, pc_r_1;
+  logic [pc_width_lp-1:0] pc_n, pc_r_0, pc_r_1;
   instruction_s instruction_0, instruction_1;
   logic icache_miss;
   logic icache_flush;
   logic icache_flush_r_lo;
   logic icache_branch_predicted_taken_lo_0, icache_branch_predicted_taken_lo_1;
 
-  logic [pc_width_lp-1:0] jalr_prediction; 
+  logic [pc_width_lp-1:0] jalr_prediction_0, jalr_prediction_1; 
   logic [pc_width_lp-1:0] pred_or_jump_addr_0, pred_or_jump_addr_1; 
  
 //==================================================== 
@@ -192,7 +192,8 @@ module vanilla_core
     ,.pc_i(pc_n)
 
     // YARA added second output signal for all of the following ports
-    ,.jalr_prediction_i(jalr_prediction)
+    ,.jalr_prediction_0_i(jalr_prediction_0)
+    ,.jalr_prediction_1_i(jalr_prediction_1)
 
     ,.instr0_o(instruction_0)
     ,.instr1_o(instruction_1)
@@ -209,32 +210,6 @@ module vanilla_core
     // YARA no change to cache miss and flush signals
     ,.icache_miss_o(icache_miss)
     ,.icache_flush_r_o(icache_flush_r_lo)
-  );
-
-  // PC pipeline register: latches next PC based on dual/single issue
-  // Advances by +2 on dual-issue, +1 on single-issue, +0 on stall/no instructions
-  logic [pc_width_lp-1:0] pc_r_n;
-  
-  always_comb begin
-    if (ibuffer_dual_issue_o) begin
-      pc_r_n = pc_r + 2'd2;
-    end
-    else if (ibuffer_single_issue_o) begin
-      pc_r_n = pc_r + 1'd1;
-    end
-    else begin
-      pc_r_n = pc_r;  // hold on stall or no valid instructions
-    end
-  end
-  
-  bsg_dff_reset_en #(
-    .width_p(pc_width_lp)
-  ) pc_dff (
-    .clk_i(clk_i)
-    ,.reset_i(reset_i)
-    ,.en_i(~stall_all)
-    ,.data_i(pc_r_n)
-    ,.data_o(pc_r)
   );
 
   wire [pc_width_lp-1:0] pc_plus4 = pc_r + 1'b1;
@@ -254,8 +229,7 @@ module vanilla_core
 
   // debug pc
   // synopsys translate_off
-  // YARA commented this line out
-  // wire [data_width_lp-1:0] if_pc = {{(data_width_p-pc_width_lp-2){1'b0}}, pc_r, 2'b00};
+  wire [data_width_lp-1:0] if_pc = {{(data_width_p-pc_width_lp-2){1'b0}}, pc_r, 2'b00};
   wire [data_width_p-1:0] id_pc = (id_r.pc_plus4 - 'd4);
   wire [data_width_p-1:0] exe_pc = (exe_r.pc_plus4 - 'd4);
   // synopsys translate_on
@@ -271,7 +245,6 @@ module vanilla_core
   logic [pc_width_lp-1:0] ibuffer_pc0_o, ibuffer_pc1_o;
   logic [pc_width_lp-1:0] ibuffer_pred_or_jump_addr0, ibuffer_pred_or_jump_addr1;
   logic ibuffer_branch_predicted_taken0, ibuffer_branch_predicted_taken1;
-  logic ibuffer_dual_issue_o, ibuffer_single_issue_o;
 
   dual_issue_ibuffer #(
     .pc_width_lp(pc_width_lp)
@@ -307,8 +280,6 @@ module vanilla_core
     
     ,.instr_int_o(ibuffer_instr_int)
     ,.instr_fp_o(ibuffer_instr_fp)
-    ,.dual_issue_o(ibuffer_dual_issue_o)
-    ,.single_issue_o(ibuffer_single_issue_o)
   );
 
   // ============================================================================

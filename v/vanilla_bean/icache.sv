@@ -36,7 +36,8 @@ module icache // dual issue icache
 
     // icache read (by processor) - provides 2 consecutive PCs
     , input [pc_width_lp-1:0] pc_i // the pc of the first instruction to read
-    , input [pc_width_lp-1:0] jalr_prediction_i // jalr predictor (single, since two JALR cannot dual-issue)
+    , input [pc_width_lp-1:0] jalr_prediction_0_i // jalr predictor for first instruction
+    , input [pc_width_lp-1:0] jalr_prediction_1_i // jalr predictor for second instruction
 
     // DUAL ISSUE OUTPUT: Two instructions, two PCs, two branch predictions
     , output [RV32_instr_width_gp-1:0] instr0_o // first instruction
@@ -361,13 +362,13 @@ module icache // dual issue icache
   assign pred_or_jump_addr0_o = is_jal_instr0
     ? jal_pc0[2+:pc_width_lp]
     : (is_jalr_instr0
-      ? jalr_prediction_i
+      ? jalr_prediction_0_i
       : branch_pc0[2+:pc_width_lp]);
 
   assign pred_or_jump_addr1_o = is_jal_instr1
     ? jal_pc1[2+:pc_width_lp]
     : (is_jalr_instr1
-      ? jalr_prediction_i
+      ? jalr_prediction_1_i
       : branch_pc1[2+:pc_width_lp]);
 
   // Branch prediction indicators (from sign bit of immediate)

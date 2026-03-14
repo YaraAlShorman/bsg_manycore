@@ -49,8 +49,6 @@ module dual_issue_ibuffer
 
         , output [RV32_instr_width_gp-1:0] instr_int_o // instruction going to int decode
         , output [RV32_instr_width_gp-1:0] instr_fp_o // instruction going to fp decode
-        , output logic dual_issue_o  // indicates if both int and fp instructions are issued simultaneously
-        , output logic single_issue_o  // indicates if exactly one instruction (int XOR fp) is issued
     );
 
     logic is_fp_instr0, is_fp_instr1;
@@ -236,12 +234,6 @@ module dual_issue_ibuffer
             ready_o = 1'b1;
         end
     end
-
-    // Dual-issue indicator: high when both INT and FP instructions are issued simultaneously
-    assign dual_issue_o = int_v_o & fp_v_o;
-    
-    // Single-issue indicator: high when exactly one instruction (INT XOR FP) is issued
-    assign single_issue_o = int_v_o ^ fp_v_o;
 
     // Output PC and prediction info
     always_comb begin
