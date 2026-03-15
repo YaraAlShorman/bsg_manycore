@@ -329,34 +329,25 @@ module vanilla_core
     ,.single_issue_o(ibuffer_single_issue_o) /*DONE*/
   );
 
+  
+  instruction_s int_instruction, fp_instruction;
+  assign int_instruction = ibuffer_instr_int_o;
+  assign fp_instruction = ibuffer_instr_fp_o;
 
   // instruction decode
-  //
-  decode_s decode;
-  fp_decode_s fp_decode;
+  // TODO: rename instances of instruction to int_instruction or fp_instruction
+  decode_s int_decode;
+  fp_bucket_decode_s fp_decode;
 
   cl_decode decode0 (
-    .instruction_i(instruction)
-    ,.decode_o(decode)
-    ,.fp_decode_o(fp_decode)
+    .instruction_i(int_instruction)
+    ,.decode_o(int_decode)
+    ,.fp_decode_o()
   ); 
 
-  // fp_cl_decode signals
-  logic fp_cl_is_fp_op_o;
-  logic fp_cl_read_frs1_o;
-  logic fp_cl_read_frs2_o;
-  logic fp_cl_read_frs3_o;
-  logic fp_cl_write_frd_o;
-  fp_decode_s fp_cl_fp_decode_o;
-
   fp_cl_decode fp_cl_decode0 (
-    .instruction_i() /*TODO*/
-    ,.is_fp_op_o() /*TODO*/
-    ,.read_frs1_o() /*TODO*/
-    ,.read_frs2_o() /*TODO*/
-    ,.read_frs3_o() /*TODO*/
-    ,.write_frd_o() /*TODO*/
-    ,.fp_decode_o() /*TODO*/
+    .instruction_i(fp_instruction) /*DONE*/
+    ,.fp_decode_o(fp_decode) /*DONE*/
   );
 
 
@@ -385,6 +376,7 @@ module vanilla_core
   logic [1:0] int_rf_read;
   logic [1:0][data_width_p-1:0] int_rf_rdata;
 
+  // DONE: rename instances of instruction to int_instruction or fp_instruction
   regfile #(
     .width_p(data_width_p)
     ,.els_p(RV32_reg_els_gp)
@@ -399,12 +391,13 @@ module vanilla_core
     ,.w_addr_i(int_rf_waddr)
     ,.w_data_i(int_rf_wdata)
 
+    // leave disconnected for int regfile use, only 1 write port
     ,.w2_v_i()
     ,.w2_addr_i()
     ,.w2_data_i()
 
     ,.r_v_i(int_rf_read)
-    ,.r_addr_i({instruction.rs2, instruction.rs1})
+    ,.r_addr_i({int_instruction.rs2, int_instruction.rs1})
     ,.r_data_o(int_rf_rdata)
   );
   
@@ -427,8 +420,8 @@ module vanilla_core
     .clk_i(clk_i)
     ,.reset_i(reset_i)
   
-    ,.src_id_i({id_r.instruction.rs2, id_r.instruction.rs1})
-    ,.dest_id_i(id_r.instruction.rd)
+    ,.src_id_i({id_r.int_instruction.rs2, id_r.int_instruction.rs1})
+    ,.dest_id_i(id_r.int_instruction.rd)
 
     ,.op_reads_rf_i({id_r.decode.read_rs2, id_r.decode.read_rs1})
     ,.op_writes_rf_i(id_r.decode.write_rd)
@@ -475,7 +468,7 @@ module vanilla_core
     ,.w2_data_i(float_rf_compute_wdata)
 
     ,.r_v_i(float_rf_read)
-    ,.r_addr_i({instruction[31:27], instruction.rs2, instruction.rs1})
+    ,.r_addr_i({fp_instruction[31:27], fp_instruction.rs2, fp_instruction.rs1})
     ,.r_data_o(float_rf_rdata)
   );
 
@@ -498,8 +491,8 @@ module vanilla_core
     .clk_i(clk_i)
     ,.reset_i(reset_i)
   
-    ,.src_id_i({id_r.instruction[31:27], id_r.instruction.rs2, id_r.instruction.rs1})
-    ,.dest_id_i(id_r.instruction.rd)
+    ,.src_id_i({id_r.fp_instruction[31:27], id_r.fp_instruction.rs2, id_r.fp_instruction.rs1})
+    ,.dest_id_i(id_r.fp_instruction.rd)
 
     ,.op_reads_rf_i({id_r.decode.read_frs3, id_r.decode.read_frs2, id_r.decode.read_frs1})
     ,.op_writes_rf_i(id_r.decode.write_frd)
@@ -575,11 +568,12 @@ module vanilla_core
     ,.remote_interrupt_set_i(remote_interrupt_set_i)
     ,.remote_interrupt_clear_i(remote_interrupt_clear_i)
 
+    // DONE: CSR operations are not FP, so use int_instruction as input
     ,.we_i      (mcsr_we_li)
-    ,.addr_i    (id_r.instruction[31:20])
-    ,.funct3_i  (id_r.instruction.funct3)
+    ,.addr_i    (id_r.int_instruction[31:20])
+    ,.funct3_i  (id_r.int_instruction.funct3)
     ,.data_i    (mcsr_data_li)
-    ,.rs1_i     (id_r.instruction.rs1)
+    ,.rs1_i     (id_r.int_instruction.rs1)
     ,.data_o    (mcsr_data_lo)
 
     ,.cfg_pod_reset_val_i({global_y_i[y_cord_width_p-1-:pod_y_cord_width_p]
@@ -631,11 +625,11 @@ module vanilla_core
 
 
   // calculate mem address offset
-  //
+  // DONE: load/store operations are not FP, so use int_instruction as input
   wire [RV32_Iimm_width_gp-1:0] mem_addr_op2 = id_r.decode.is_store_op
-    ? `RV32_Simm_12extract(id_r.instruction)
+    ? `RV32_Simm_12extract(id_r.int_instruction)
     : (id_r.decode.is_load_op
-      ? `RV32_Iimm_12extract(id_r.instruction)
+      ? `RV32_Iimm_12extract(id_r.int_instruction)
       : '0);
 
   // 'aq' register
@@ -657,7 +651,8 @@ module vanilla_core
     else begin
       if (aq_set) begin
         aq_r <= 1'b1;
-        aq_rd_r <= id_r.instruction.rd;
+        // DONE: atomic operations are not FP, so use int_instruction as input
+        aq_rd_r <= id_r.int_instruction.rd;
       end
       else if (aq_clear) begin
         aq_r <= 1'b0;
@@ -787,7 +782,7 @@ module vanilla_core
 
 
   // ALU
-  //
+  // DONE: ALU uses int_instruction as input
   logic [data_width_p-1:0] alu_result;
   logic [pc_width_lp-1:0] alu_jalr_addr;
   logic alu_jump_now;
@@ -798,7 +793,7 @@ module vanilla_core
     .rs1_i(exe_r.rs1_val)
     ,.rs2_i(exe_r.rs2_val)
     ,.pc_plus4_i(exe_r.pc_plus4)
-    ,.op_i(exe_r.instruction)
+    ,.op_i(exe_r.int_instruction)
     ,.result_o(alu_result)
     ,.jalr_addr_o(alu_jalr_addr)
     ,.jump_now_o(alu_jump_now)
@@ -809,8 +804,9 @@ module vanilla_core
   // save pc+4 of jalr/jal for predicting jalr branch target
   // For risc-v, hints for saving return address for jalr/jal are encoded implicitly in the rd used.
   // For jalr/jal, save the pc+4 when rd = x1 or x5.
+  // DONE: branch/jump operations are not FP, so use int_instruction as input
   wire jalr_prediction_write_en = (exe_r.decode.is_jal_op | exe_r.decode.is_jalr_op)
-    & ((exe_r.instruction.rd == 5'd1) | (exe_r.instruction.rd == 5'd5));
+    & ((exe_r.int_instruction.rd == 5'd1) | (exe_r.int_instruction.rd == 5'd5));
 
   bsg_dff_reset_en_bypass #(
     .width_p(pc_width_lp)
@@ -829,7 +825,7 @@ module vanilla_core
 
 
   // IDIV
-  //
+  // DONE: IDIV operations are not FP, so use int_instruction as input
   logic idiv_v_li;
   logic idiv_ready_and_lo;
   logic idiv_v_lo;
@@ -844,7 +840,7 @@ module vanilla_core
     ,.v_i(idiv_v_li)
     ,.rs1_i(exe_r.rs1_val)
     ,.rs2_i(exe_r.rs2_val)
-    ,.rd_i(exe_r.instruction.rd)
+    ,.rd_i(exe_r.int_instruction.rd)
     ,.op_i(exe_r.decode.idiv_op)
     ,.ready_and_o(idiv_ready_and_lo)
   
@@ -856,7 +852,7 @@ module vanilla_core
   
 
   // LSU
-  //
+  // DONE: load/store operations are not FP, so use int_instruction as input
   logic lsu_remote_req_v_lo;
   logic lsu_dmem_v_lo;
   logic lsu_dmem_w_lo;
@@ -876,7 +872,7 @@ module vanilla_core
     ,.exe_decode_i(exe_r.decode)
     ,.exe_rs1_i(exe_r.rs1_val)
     ,.exe_rs2_i(exe_r.rs2_val)
-    ,.exe_rd_i(exe_r.instruction.rd)
+    ,.exe_rd_i(exe_r.int_instruction.rd)
     ,.mem_offset_i(exe_r.mem_addr_op2)
     ,.pc_plus4_i(exe_r.pc_plus4)
     ,.icache_miss_i(exe_r.icache_miss)
@@ -975,7 +971,7 @@ module vanilla_core
   );
 
   // FPU FLOAT
-  //
+  // DONE: FPU_FLOAT operations are FP, so use fp_instruction as input
   logic stall_fpu1_li;
   logic stall_fpu2_li;
 
@@ -1001,7 +997,7 @@ module vanilla_core
     ,.imul_v_i(exe_r.decode.is_imul_op)
     ,.imul_rs1_i(exe_r.rs1_val)
     ,.imul_rs2_i(exe_r.rs2_val)
-    ,.imul_rd_i(exe_r.instruction.rd)
+    ,.imul_rd_i(exe_r.fp_instruction.rd)
 
     ,.fp_v_i(fp_exe_ctrl_r.fp_decode.is_fpu_float_op)
     ,.fpu_float_op_i(fp_exe_ctrl_r.fp_decode.fpu_float_op)
@@ -1423,9 +1419,11 @@ module vanilla_core
   always_comb begin
     // common case
     id_n = '{
+      // DONE: rename connections to match struct declaration
       pc_plus4: {{(data_width_p-pc_width_lp-2){1'b0}}, pc_plus4, 2'b0},
       pred_or_jump_addr: {{(data_width_p-pc_width_lp-2){1'b0}}, pred_or_jump_addr, 2'b0},
-      instruction: instruction,
+      int_instruction: int_instruction,
+      fp_instruction: fp_instruction,
       decode: decode,
       fp_decode: fp_decode,
       icache_miss: 1'b0,
@@ -1452,9 +1450,11 @@ module vanilla_core
       else if (icache_miss) begin
         id_en = 1'b1;
         id_n = '{
+          // DONE: rename connections to match struct declaration
           pc_plus4: {{(data_width_p-pc_width_lp-2){1'b0}}, pc_plus4, 2'b0},
           pred_or_jump_addr: '0,
-          instruction: '0,
+          int_instruction: '0,
+          fp_instruction: '0,
           decode: '0,
           fp_decode: '0,
           icache_miss: 1'b1,
@@ -1479,38 +1479,65 @@ module vanilla_core
   assign float_rf_read[2] = id_n.decode.read_frs3 & rf_read_en;
 
   // helpful control signals;
-  wire [reg_addr_width_lp-1:0] id_rs1 = id_r.instruction.rs1;
-  wire [reg_addr_width_lp-1:0] id_rs2 = id_r.instruction.rs2;
-  wire [reg_addr_width_lp-1:0] id_rs3 = id_r.instruction[31:27];
-  wire [reg_addr_width_lp-1:0] id_rd = id_r.instruction.rd;
+  // DONE: duplicate and modify signals for int and fp instructions
+  // TODO: rename all instances of variables that have been changed
+  wire [reg_addr_width_lp-1:0] id_int_rs1 = id_r.int_instruction.rs1;
+  wire [reg_addr_width_lp-1:0] id_int_rs2 = id_r.int_instruction.rs2;
+  wire [reg_addr_width_lp-1:0] id_int_rd = id_r.int_instruction.rd;
+
+  wire [reg_addr_width_lp-1:0] id_fp_rs1 = id_r.fp_instruction.rs1;
+  wire [reg_addr_width_lp-1:0] id_fp_rs2 = id_r.fp_instruction.rs2;
+  wire [reg_addr_width_lp-1:0] id_fp_rs3 = id_r.fp_instruction[31:27];
+  wire [reg_addr_width_lp-1:0] id_fp_rd = id_r.fp_instruction.rd;
+
   wire remote_req_in_exe = lsu_remote_req_v_lo;
   wire local_load_in_exe = lsu_dmem_v_lo & ~lsu_dmem_w_lo;
-  wire id_rs1_non_zero = id_rs1 != '0;
-  wire id_rs2_non_zero = id_rs2 != '0;
-  wire id_rd_non_zero = id_rd != '0;
+
+  wire id_int_rs1_non_zero = id_int_rs1 != '0;
+  wire id_int_rs2_non_zero = id_int_rs2 != '0;
+  wire id_int_rd_non_zero = id_int_rd != '0;
+  // no need to duplicate for FP bc dependency on reg0 is okay
+
   wire int_remote_load_in_exe = remote_req_in_exe & exe_r.decode.is_load_op & exe_r.decode.write_rd;
   wire float_remote_load_in_exe = remote_req_in_exe & exe_r.decode.is_load_op & exe_r.decode.write_frd;
+
   wire fdiv_fsqrt_in_fp_exe = fp_exe_ctrl_r.fp_decode.is_fdiv_op | fp_exe_ctrl_r.fp_decode.is_fsqrt_op;
   wire remote_credit_pending = (out_credits_used_i != '0);
-  wire id_rs1_equal_exe_rd = (id_rs1 == exe_r.instruction.rd);
-  wire id_rs2_equal_exe_rd = (id_rs2 == exe_r.instruction.rd);
-  wire id_rs3_equal_exe_rd = (id_rs3 == exe_r.instruction.rd);
-  wire id_rs1_equal_fp_exe_rd = (id_rs1 == fp_exe_ctrl_r.rd);
-  wire id_rs2_equal_fp_exe_rd = (id_rs2 == fp_exe_ctrl_r.rd);
-  wire id_rs3_equal_fp_exe_rd = (id_rs3 == fp_exe_ctrl_r.rd);
-  wire id_rs1_equal_mem_rd = (id_rs1 == mem_ctrl_r.rd_addr);
-  wire id_rs2_equal_mem_rd = (id_rs2 == mem_ctrl_r.rd_addr);
-  wire id_rs3_equal_mem_rd = (id_rs3 == mem_ctrl_r.rd_addr);
-  wire id_rs1_equal_wb_rd = (id_rs1 == wb_ctrl_r.rd_addr);
-  wire id_rs2_equal_wb_rd = (id_rs2 == wb_ctrl_r.rd_addr);
+
+  wire id_int_rs1_equal_exe_rd = (id_int_rs1 == exe_r.int_instruction.rd);
+  wire id_int_rs2_equal_exe_rd = (id_int_rs2 == exe_r.int_instruction.rd);
+  wire id_fp_rs1_equal_exe_rd = (id_fp_rs1 == exe_r.fp_instruction.rd);
+  wire id_fp_rs2_equal_exe_rd = (id_fp_rs2 == exe_r.fp_instruction.rd);
+  wire id_fp_rs3_equal_exe_rd = (id_fp_rs3 == exe_r.fp_instruction.rd);
+
+  wire id_int_rs1_equal_fp_exe_rd = (id_int_rs1 == fp_exe_ctrl_r.rd);
+  wire id_int_rs2_equal_fp_exe_rd = (id_int_rs2 == fp_exe_ctrl_r.rd);
+  wire id_fp_rs1_equal_fp_exe_rd = (id_fp_rs1 == fp_exe_ctrl_r.rd);
+  wire id_fp_rs2_equal_fp_exe_rd = (id_fp_rs2 == fp_exe_ctrl_r.rd);
+  wire id_fp_rs3_equal_fp_exe_rd = (id_fp_rs3 == fp_exe_ctrl_r.rd);
+
+  wire id_int_rs1_equal_mem_rd = (id_int_rs1 == mem_ctrl_r.rd_addr);
+  wire id_int_rs2_equal_mem_rd = (id_int_rs2 == mem_ctrl_r.rd_addr);
+  wire id_fp_rs1_equal_mem_rd = (id_fp_rs1 == mem_ctrl_r.rd_addr);
+  wire id_fp_rs2_equal_mem_rd = (id_fp_rs2 == mem_ctrl_r.rd_addr);
+  wire id_fp_rs3_equal_mem_rd = (id_fp_rs3 == mem_ctrl_r.rd_addr);
+
+  wire id_int_rs1_equal_wb_rd = (id_int_rs1 == wb_ctrl_r.rd_addr);
+  wire id_int_rs2_equal_wb_rd = (id_int_rs2 == wb_ctrl_r.rd_addr);
+  wire id_fp_rs1_equal_wb_rd = (id_fp_rs1 == wb_ctrl_r.rd_addr);
+  wire id_fp_rs2_equal_wb_rd = (id_fp_rs2 == wb_ctrl_r.rd_addr);
+  wire id_fp_rs3_equal_wb_rd = (id_fp_rs3 == wb_ctrl_r.rd_addr);
+
 
   // stall_depend_long_op (idiv, fdiv, remote_load, atomic)
+  // DONE: rename all instances of variables that have been changed
   // int clear-now wire
-  wire rs1_sb_clear_now = id_r.decode.read_rs1 & (id_rs1 == int_sb_clear_id) & int_sb_clear & id_rs1_non_zero; 
+  wire rs1_sb_clear_now = id_r.decode.read_rs1 & (id_int_rs1 == int_sb_clear_id) & int_sb_clear & id_int_rs1_non_zero; 
   // fp clear-now wire, check if either port 0 and port 1 are clearing
   wire frs2_sb_clear_now = id_r.decode.read_frs2 & 
-                           (((id_rs2 == float_sb_clear_id[0]) & float_sb_clear[0]) |
-                            ((id_rs2 == float_sb_clear_id[1]) & float_sb_clear[1]));
+                           (((id_fp_rs2 == float_sb_clear_id[0]) & float_sb_clear[0]) |
+                            ((id_fp_rs2 == float_sb_clear_id[1]) & float_sb_clear[1]));
+
 
   assign stall_depend_long_op = (int_dependency | float_dependency)
     | (id_r.decode.is_fp_op
@@ -1521,46 +1548,53 @@ module vanilla_core
   
 
   // stall_depend_local_load (lw, flw, lr, lr.aq)
+  // DONE: rename all instances of variables that have been changed
   assign stall_depend_local_load = local_load_in_exe &
-    ((id_r.decode.read_rs1  & id_rs1_equal_exe_rd & exe_r.decode.write_rd & id_rs1_non_zero)
-    |(id_r.decode.read_rs2  & id_rs2_equal_exe_rd & exe_r.decode.write_rd & id_rs2_non_zero)
-    |(id_r.decode.read_frs1 & id_rs1_equal_exe_rd & exe_r.decode.write_frd)
-    |(id_r.decode.read_frs2 & id_rs2_equal_exe_rd & exe_r.decode.write_frd)
-    |(id_r.decode.read_frs3 & id_rs3_equal_exe_rd & exe_r.decode.write_frd));
+    ((id_r.decode.read_rs1  & id_int_rs1_equal_exe_rd & exe_r.decode.write_rd & id_int_rs1_non_zero)
+    |(id_r.decode.read_rs2  & id_int_rs2_equal_exe_rd & exe_r.decode.write_rd & id_int_rs2_non_zero)
+    |(id_r.decode.read_frs1 & id_fp_rs1_equal_exe_rd & exe_r.decode.write_frd)
+    |(id_r.decode.read_frs2 & id_fp_rs2_equal_exe_rd & exe_r.decode.write_frd)
+    |(id_r.decode.read_frs3 & id_fp_rs3_equal_exe_rd & exe_r.decode.write_frd));
 
 
   // stall_depend_imul
+  // DONE: IMUL operations are not FP, so use int_instruction as input
   assign stall_depend_imul = exe_r.decode.is_imul_op &
-    ((id_r.decode.read_rs1 & id_rs1_equal_exe_rd & id_rs1_non_zero)
-    |(id_r.decode.read_rs2 & id_rs2_equal_exe_rd & id_rs2_non_zero));
+    ((id_r.decode.read_rs1 & id_int_rs1_equal_exe_rd & id_int_rs1_non_zero)
+    |(id_r.decode.read_rs2 & id_int_rs2_equal_exe_rd & id_int_rs2_non_zero));
 
 
   // stall_bypass
+  // DONE: rename all instances of variables that have been changed
   wire stall_bypass_fp_frs = 
-     (id_r.decode.read_frs1 & id_rs1_equal_fp_exe_rd & fp_exe_ctrl_r.fp_decode.is_fpu_float_op)
-    |(id_r.decode.read_frs2 & id_rs2_equal_fp_exe_rd & fp_exe_ctrl_r.fp_decode.is_fpu_float_op)
-    |(id_r.decode.read_frs3 & id_rs3_equal_fp_exe_rd & fp_exe_ctrl_r.fp_decode.is_fpu_float_op)
-    |(id_r.decode.read_frs1 & (id_rs1 == fpu1_rd_r) & fpu1_v_r)
-    |(id_r.decode.read_frs2 & (id_rs2 == fpu1_rd_r) & fpu1_v_r)
-    |(id_r.decode.read_frs3 & (id_rs3 == fpu1_rd_r) & fpu1_v_r)
-    |(id_r.decode.read_frs1 & id_rs1_equal_mem_rd & mem_ctrl_r.write_frd)
-    |(id_r.decode.read_frs2 & id_rs2_equal_mem_rd & mem_ctrl_r.write_frd)
-    |(id_r.decode.read_frs3 & id_rs3_equal_mem_rd & mem_ctrl_r.write_frd);
+     (id_r.decode.read_frs1 & id_fp_rs1_equal_fp_exe_rd & fp_exe_ctrl_r.fp_decode.is_fpu_float_op)
+    |(id_r.decode.read_frs2 & id_fp_rs2_equal_fp_exe_rd & fp_exe_ctrl_r.fp_decode.is_fpu_float_op)
+    |(id_r.decode.read_frs3 & id_fp_rs3_equal_fp_exe_rd & fp_exe_ctrl_r.fp_decode.is_fpu_float_op)
+    |(id_r.decode.read_frs1 & (id_fp_rs1 == fpu1_rd_r) & fpu1_v_r)
+    |(id_r.decode.read_frs2 & (id_fp_rs2 == fpu1_rd_r) & fpu1_v_r)
+    |(id_r.decode.read_frs3 & (id_fp_rs3 == fpu1_rd_r) & fpu1_v_r)
+    |(id_r.decode.read_frs1 & id_fp_rs1_equal_mem_rd & mem_ctrl_r.write_frd)
+    |(id_r.decode.read_frs2 & id_fp_rs2_equal_mem_rd & mem_ctrl_r.write_frd)
+    |(id_r.decode.read_frs3 & id_fp_rs3_equal_mem_rd & mem_ctrl_r.write_frd);
 
-  wire stall_bypass_fp_rs1 = (id_r.decode.read_rs1 & id_rs1_non_zero) &
-    ((id_rs1_equal_fp_exe_rd & fp_exe_ctrl_r.fp_decode.is_fpu_int_op)
-    |((id_rs1 == imul_rd_lo) & imul_v_lo)
-    |(id_rs1_equal_exe_rd & exe_r.decode.write_rd)
-    |(id_rs1_equal_mem_rd & mem_ctrl_r.write_rd)
-    |(id_rs1_equal_wb_rd & wb_ctrl_r.write_rd));
+
+  // DONE: rename all instances of variables that have been changed, remove checking for id_fp_rs1_non_zero
+  // wire stall_bypass_fp_rs1 = (id_r.decode.read_rs1 & id_rs1_non_zero) &
+  wire stall_bypass_fp_rs1 = (id_r.decode.read_rs1) &
+    ((id_fp_rs1_equal_fp_exe_rd & fp_exe_ctrl_r.fp_decode.is_fpu_int_op)
+    |((id_fp_rs1 == imul_rd_lo) & imul_v_lo)
+    |(id_fp_rs1_equal_exe_rd & exe_r.decode.write_rd)
+    |(id_fp_rs1_equal_mem_rd & mem_ctrl_r.write_rd)
+    |(id_fp_rs1_equal_wb_rd & wb_ctrl_r.write_rd));
   
 
+  // DONE: rename all instances of variables that have been changed
   wire stall_bypass_int_frs2 = id_r.decode.read_frs2 &
-    ((id_rs2_equal_fp_exe_rd & fp_exe_ctrl_r.fp_decode.is_fpu_float_op)
-    |((id_rs2 == fpu1_rd_r) & fpu1_v_r)
-    |((id_rs2 == fpu_float_rd_lo) & fpu_float_v_lo)
-    |(id_rs2_equal_mem_rd & mem_ctrl_r.write_frd)
-    |((id_rs2 == flw_wb_ctrl_r.rd_addr) & flw_wb_ctrl_r.valid));
+    ((id_int_rs2_equal_fp_exe_rd & fp_exe_ctrl_r.fp_decode.is_fpu_float_op)
+    |((id_int_rs2 == fpu1_rd_r) & fpu1_v_r)
+    |((id_int_rs2 == fpu_float_rd_lo) & fpu_float_v_lo)
+    |(id_int_rs2_equal_mem_rd & mem_ctrl_r.write_frd)
+    |((id_int_rs2 == flw_wb_ctrl_r.rd_addr) & flw_wb_ctrl_r.valid));
     
 
   assign stall_bypass = id_r.decode.is_fp_op
@@ -1626,9 +1660,10 @@ module vanilla_core
     : 1'b1);
 
   // stall_fcsr
+  // DONE: CSR operations are not FP, so use int_instruction as input
   assign stall_fcsr = (id_r.decode.is_csr_op)
-    & ((id_r.instruction[31:20] == `RV32_CSR_FFLAGS_ADDR)
-      |(id_r.instruction[31:20] == `RV32_CSR_FCSR_ADDR))
+    & ((id_r.int_instruction[31:20] == `RV32_CSR_FFLAGS_ADDR)
+      |(id_r.int_instruction[31:20] == `RV32_CSR_FCSR_ADDR))
     & (fp_exe_ctrl_r.fp_decode.is_fpu_float_op
       |fp_exe_ctrl_r.fp_decode.is_fpu_int_op
       |fp_exe_ctrl_r.fp_decode.is_fdiv_op
@@ -1648,24 +1683,27 @@ module vanilla_core
 
   // frs1
   // checking whether mem or compute path has data, otherwise access regfile
-  wire frs1_match_mem = (id_rs1 == float_rf_mem_waddr) & float_rf_mem_wen;
-  wire frs1_match_compute = (id_rs1 == float_rf_compute_waddr) & float_rf_compute_wen;
+  // DONE: rename all instances of variables that have been changed
+  wire frs1_match_mem = (id_fp_rs1 == float_rf_mem_waddr) & float_rf_mem_wen;
+  wire frs1_match_compute = (id_fp_rs1 == float_rf_compute_waddr) & float_rf_compute_wen;
   assign frs1_forward_v = ~id_r.decode.read_frs1 ? 2'b00 :
                           frs1_match_compute     ? 2'b10 : // compute priority
                           frs1_match_mem         ? 2'b01 : 2'b00;
 
   // frs2
   // checking whether mem or compute path has data, otherwise access regfile
-  wire frs2_match_mem = (id_rs2 == float_rf_mem_waddr) & float_rf_mem_wen;
-  wire frs2_match_compute = (id_rs2 == float_rf_compute_waddr) & float_rf_compute_wen;
+  // DONE: rename all instances of variables that have been changed
+  wire frs2_match_mem = (id_fp_rs2 == float_rf_mem_waddr) & float_rf_mem_wen;
+  wire frs2_match_compute = (id_fp_rs2 == float_rf_compute_waddr) & float_rf_compute_wen;
   assign frs2_forward_v = ~id_r.decode.read_frs2 ? 2'b00 :
                           frs2_match_compute     ? 2'b10 : // compute priority
                           frs2_match_mem         ? 2'b01 : 2'b00;
 
   // frs3
   // checking whether mem or compute path has data, otherwise access regfile
-  wire frs3_match_mem = (id_rs3 == float_rf_mem_waddr) & float_rf_mem_wen;
-  wire frs3_match_compute = (id_rs3 == float_rf_compute_waddr) & float_rf_compute_wen;
+  // DONE: rename all instances of variables that have been changed
+  wire frs3_match_mem = (id_fp_rs3 == float_rf_mem_waddr) & float_rf_mem_wen;
+  wire frs3_match_compute = (id_fp_rs3 == float_rf_compute_waddr) & float_rf_compute_wen;
   assign frs3_forward_v = ~id_r.decode.read_frs3 ? 2'b00 :
                           frs3_match_compute     ? 2'b10 : // compute priority
                           frs3_match_mem         ? 2'b01 : 2'b00;
@@ -1677,17 +1715,18 @@ module vanilla_core
   logic [2:0] has_forward_data_rs1;
   logic [2:0] has_forward_data_rs2;
 
+  // DONE: rename all instances of variables that have been changed
   assign has_forward_data_rs1[0] =
-    ((exe_r.decode.write_rd & id_rs1_equal_exe_rd)
-    |(fp_exe_ctrl_r.fp_decode.is_fpu_int_op & id_rs1_equal_fp_exe_rd))
-    & id_rs1_non_zero;
+    ((exe_r.decode.write_rd & id_int_rs1_equal_exe_rd)
+    |(fp_exe_ctrl_r.fp_decode.is_fpu_int_op & id_int_rs1_equal_fp_exe_rd))
+    & id_int_rs1_non_zero;
   assign has_forward_data_rs1[1] =
-    ((mem_ctrl_r.write_rd & id_rs1_equal_mem_rd)
-    |(imul_v_lo & (imul_rd_lo == id_rs1)))
-    & id_rs1_non_zero;
+    ((mem_ctrl_r.write_rd & id_int_rs1_equal_mem_rd)
+    |(imul_v_lo & (imul_rd_lo == id_int_rs1)))
+    & id_int_rs1_non_zero;
   assign has_forward_data_rs1[2] =
-    wb_ctrl_r.write_rd & id_rs1_equal_wb_rd
-    & id_rs1_non_zero;
+    wb_ctrl_r.write_rd & id_int_rs1_equal_wb_rd
+    & id_int_rs1_non_zero;
 
   bsg_priority_encode #(
     .width_p(3)
@@ -1698,17 +1737,18 @@ module vanilla_core
     ,.v_o(rs1_forward_v)
   );
 
+  // DONE: rename all instances of variables that have been changed
   assign has_forward_data_rs2[0] =
-    ((exe_r.decode.write_rd & id_rs2_equal_exe_rd)
-    |(fp_exe_ctrl_r.fp_decode.is_fpu_int_op & id_rs2_equal_fp_exe_rd))
-    & id_rs2_non_zero;
+    ((exe_r.decode.write_rd & id_int_rs2_equal_exe_rd)
+    |(fp_exe_ctrl_r.fp_decode.is_fpu_int_op & id_int_rs2_equal_fp_exe_rd))
+    & id_int_rs2_non_zero;
   assign has_forward_data_rs2[1] =
-    ((mem_ctrl_r.write_rd & id_rs2_equal_mem_rd)
-    |(imul_v_lo & (imul_rd_lo == id_rs2)))
-    & id_rs2_non_zero;
+    ((mem_ctrl_r.write_rd & id_int_rs2_equal_mem_rd)
+    |(imul_v_lo & (imul_rd_lo == id_int_rs2)))
+    & id_int_rs2_non_zero;
   assign has_forward_data_rs2[2] =
-    wb_ctrl_r.write_rd & id_rs2_equal_wb_rd
-    & id_rs2_non_zero;
+    wb_ctrl_r.write_rd & id_int_rs2_equal_wb_rd
+    & id_int_rs2_non_zero;
 
   bsg_priority_encode #(
     .width_p(3)
@@ -1726,11 +1766,12 @@ module vanilla_core
 
 
   // FCSR control
+  // DONE: CSR operations are not FP, so use int_instruction as input
   assign fcsr_v_li = (id_r.decode.is_csr_op) & id_issue; 
-  assign fcsr_funct3_li = id_r.instruction.funct3;
-  assign fcsr_rs1_li = id_r.instruction.rs1;
+  assign fcsr_funct3_li = id_r.int_instruction.funct3;
+  assign fcsr_rs1_li = id_r.int_instruction.rs1;
   assign fcsr_data_li = rs1_val_to_exe[7:0];
-  assign fcsr_addr_li = id_r.instruction[31:20];
+  assign fcsr_addr_li = id_r.int_instruction[31:20];
 
 
   // interrupt / CSR control
@@ -1750,10 +1791,12 @@ module vanilla_core
   always_comb begin
     // common case
     exe_n = '{
+      // DONE: rename connections to match struct declaration
       pc_plus4: id_r.pc_plus4,
       valid: id_r.valid,
       pred_or_jump_addr: id_r.pred_or_jump_addr,
-      instruction: id_r.instruction,
+      int_instruction: id_r.int_instruction,
+      fp_instruction: id_r.fp_instruction,
       decode: id_r.decode,
       rs1_val: rs1_val_to_exe,
       // rs2_val carries csr load values
@@ -1783,10 +1826,12 @@ module vanilla_core
         // so we set the valid and pc_plus4.
         exe_en = 1'b1;
         exe_n = '{
+          // DONE: rename connections to match struct declaration
           pc_plus4: id_r.pc_plus4,
           valid: id_r.valid,
           pred_or_jump_addr: '0,
-          instruction: '0,
+          int_instruction: '0,
+          fp_instruction: '0,
           decode: '0,
           rs1_val: '0,
           rs2_val: '0,
@@ -1805,8 +1850,9 @@ module vanilla_core
   assign idiv_v_li = exe_r.decode.is_idiv_op & ~stall_all;
 
   // int scoreboard set logic
+  // DONE: use int_instruction as input for int scoreboard
   assign int_sb_score = ~stall_all & (exe_r.decode.is_idiv_op | exe_r.decode.is_amo_op | int_remote_load_in_exe);
-  assign int_sb_score_id = exe_r.instruction.rd;  
+  assign int_sb_score_id = exe_r.int_instruction.rd;  
 
   // exe_result
   assign exe_result = fp_exe_ctrl_r.fp_decode.is_fpu_int_op
@@ -1817,14 +1863,16 @@ module vanilla_core
   assign remote_req_v_o = lsu_remote_req_v_lo & ~stall_all;
 
   // ID -> FP_EXE
+  // DONE: use fp_instruction as input for FP_EXE
   frm_e fpu_rm;
-  assign fpu_rm = frm_e'((id_r.instruction.funct3 == eDYN)
+  assign fpu_rm = frm_e'((id_r.fp_instruction.funct3 == eDYN)
     ? frm_r
-    : id_r.instruction.funct3);
+    : id_r.fp_instruction.funct3);
 
   always_comb begin
     fp_exe_ctrl_n = '{
-      rd: id_r.instruction.rd,
+      // DONE: use fp_instruction as input for FP_EXE
+      rd: id_r.fp_instruction.rd,
       fp_decode: id_r.fp_decode,
       rm: fpu_rm
     };
@@ -1863,8 +1911,9 @@ module vanilla_core
 
   // FP scoreboard set logic
   // (port 0) mem: remote FP load
+  // DONE: use fp_instruction as input for fp scoreboard
   assign float_sb_score[0] = ~stall_all & float_remote_load_in_exe;
-  assign float_sb_score_id[0] = exe_r.instruction.rd;
+  assign float_sb_score_id[0] = exe_r.fp_instruction.rd;
 
   // (port 1) compute: FDIV/FSQRT
   assign float_sb_score[1] = ~stall_all & fdiv_fsqrt_in_fp_exe;
@@ -1875,7 +1924,8 @@ module vanilla_core
   always_comb begin
     // common case
     mem_ctrl_n = '{
-      rd_addr: exe_r.instruction.rd,
+      // DONE: mem operations handled by int instruction
+      rd_addr: exe_r.int_instruction.rd,
       write_rd: exe_r.decode.write_rd,
       write_frd: exe_r.decode.write_frd,
       is_byte_op: exe_r.decode.is_byte_op,
@@ -2173,7 +2223,8 @@ module vanilla_core
         assert(fdiv_fsqrt_ready_and_lo) else $error("fdiv_fsqrt_op issued, when fdiv_fsqrt is not ready.");
       end
 
-      assert(~id_r.decode.unsupported) else $error("Unsupported instruction: %8x", id_r.instruction);
+      // DONE: FP decode does not include an unsupported signal, assume INT decode can handle it
+      assert(~id_r.decode.unsupported) else $error("Unsupported instruction: %8x", id_r.int_instruction);
     end
   end
   // synopsys translate_on
