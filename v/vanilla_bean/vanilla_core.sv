@@ -157,20 +157,28 @@ module vanilla_core
   logic [pc_width_lp-1:0] icache_w_pc;
   logic [data_width_p-1:0] icache_winstr;
 
+  // TODO check where pc_r is connected and update that
   logic [pc_width_lp-1:0] pc_n, pc_r;
-  instruction_s instruction;
+  
+  // icache outputs - dual issue
+  instruction_s icache_instr0_o, icache_instr1_o;
+  logic [pc_width_lp-1:0] icache_pc0_o;
+  logic [pc_width_lp-1:0] icache_pc1_o;
+  logic [pc_width_lp-1:0] icache_pred_or_jump_addr0_o;
+  logic [pc_width_lp-1:0] icache_pred_or_jump_addr1_o;
+  logic icache_branch_predicted_taken0_o;
+  logic icache_branch_predicted_taken1_o;
+  
   logic icache_miss;
   logic icache_flush;
   logic icache_flush_r_lo;
-  logic icache_branch_predicted_taken_lo;
-
-  logic [pc_width_lp-1:0] jalr_prediction; 
-  logic [pc_width_lp-1:0] pred_or_jump_addr; 
+  
+  // icache inputs - dual issue jalr prediction
+  logic [pc_width_lp-1:0] jalr_prediction_0_i; 
+  logic [pc_width_lp-1:0] jalr_prediction_1_i;
  
-//==================================================== 
-// CHANGE BACK TO ICACHE IF NEEDED. OR ANOTHER NAME
-//====================================================
-  icache_OG #(
+
+  icache #(
     .icache_tag_width_p(icache_tag_width_p)
     ,.icache_entries_p(icache_entries_p)
     ,.icache_block_size_in_words_p(icache_block_size_in_words_p)
@@ -188,19 +196,26 @@ module vanilla_core
     ,.w_instr_i(icache_winstr)
 
     ,.pc_i(pc_n)
-    ,.jalr_prediction_i(jalr_prediction)
+    ,.jalr_prediction_0_i(jalr_prediction_0_i) /*DONE*/
+    ,.jalr_prediction_1_i(jalr_prediction_1_i) /*DONE*/
 
-    ,.instr_o(instruction)
-    ,.pred_or_jump_addr_o(pred_or_jump_addr)
-    ,.pc_r_o(pc_r)
+    ,.instr0_o(icache_instr0_o) /*DONE*/
+    ,.instr1_o(icache_instr1_o) /*DONE*/
+    ,.pred_or_jump_addr0_o(icache_pred_or_jump_addr0_o) /*DONE*/
+    ,.pred_or_jump_addr1_o(icache_pred_or_jump_addr1_o) /*DONE*/
+    ,.pc0_o(icache_pc0_o) /*DONE*/
+    ,.pc1_o(icache_pc1_o) /*DONE*/
+    ,.branch_predicted_taken0_o(icache_branch_predicted_taken0_o) /*DONE*/
+    ,.branch_predicted_taken1_o(icache_branch_predicted_taken1_o) /*DONE*/
     ,.icache_miss_o(icache_miss)
     ,.icache_flush_r_o(icache_flush_r_lo)
-    ,.branch_predicted_taken_o(icache_branch_predicted_taken_lo)
   );
 
-  wire [pc_width_lp-1:0] pc_plus4 = pc_r + 1'b1;
+  // TODO update the pc increment logic. move it to after the ibuffer
+  // wire [pc_width_lp-1:0] pc_plus4 = icache_pc0_o + 1'b1;
 
   // ifetch counter
+  // TODO check the ifetch counter logic
   logic [lg_icache_block_size_in_words_lp-1:0] ifetch_count_r;
   always_ff @ (posedge clk_i) begin
     if (reset_i) begin
@@ -220,6 +235,101 @@ module vanilla_core
   wire [data_width_p-1:0] exe_pc = (exe_r.pc_plus4 - 'd4);
   // synopsys translate_on
 
+  //////////////////////////////
+  //                          //
+  //      IBUFFER STAGE       //
+  //                          //
+  //////////////////////////////
+
+  // ibuffer signals - inputs from icache
+  logic ibuffer_v_i;
+  logic [RV32_instr_width_gp-1:0] ibuffer_instr0_i;
+  logic [RV32_instr_width_gp-1:0] ibuffer_instr1_i;
+  logic [pc_width_lp-1:0] ibuffer_pc0_i;
+  logic [pc_width_lp-1:0] ibuffer_pc1_i;
+  logic [pc_width_lp-1:0] ibuffer_pred_or_jump_addr0_i;
+  logic [pc_width_lp-1:0] ibuffer_pred_or_jump_addr1_i;
+  logic ibuffer_branch_predicted_taken0_i;
+  logic ibuffer_branch_predicted_taken1_i;
+
+  /* connecting icache outputs and ibuffer inputs */
+  assign ibuffer_v_i = ~icache_miss; // buffer valid if cache hit
+  assign ibuffer_instr0_i = icache_instr0_o;
+  assign ibuffer_instr1_i = icache_instr1_o;
+  assign ibuffer_pc0_i = icache_pc0_o;
+  assign ibuffer_pc1_i = icache_pc1_o;
+  assign ibuffer_pred_or_jump_addr0_i = icache_pred_or_jump_addr0_o;
+  assign ibuffer_pred_or_jump_addr1_i = icache_pred_or_jump_addr1_o;
+  assign ibuffer_branch_predicted_taken0_i = icache_branch_predicted_taken0_o;
+  assign ibuffer_branch_predicted_taken1_i = icache_branch_predicted_taken1_o;
+
+  // ibuffer signals - outputs to decode units
+  logic ibuffer_ready_o;
+  logic ibuffer_int_v_o;
+  logic ibuffer_fp_v_o;
+  logic [RV32_instr_width_gp-1:0] ibuffer_instr_int_o;
+  logic [RV32_instr_width_gp-1:0] ibuffer_instr_fp_o;
+
+  // ibuffer signals - outputs downstream
+  logic [pc_width_lp-1:0] ibuffer_pred_or_jump_addr0_o;
+  logic [pc_width_lp-1:0] ibuffer_pred_or_jump_addr1_o;
+  logic [pc_width_lp-1:0] ibuffer_pc0_o;
+  logic [pc_width_lp-1:0] ibuffer_pc1_o;
+  logic ibuffer_branch_predicted_taken0_o;
+  logic ibuffer_branch_predicted_taken1_o;
+
+  // ibuffer signals - dual issue indicators
+  logic ibuffer_dual_issue_o;
+  logic ibuffer_single_issue_o;
+
+  // ibuffer inputs from decode units
+  logic ibuffer_int_yum_i;
+  logic ibuffer_fp_yum_i;
+
+  ibuffer #(
+    .pc_width_lp(pc_width_lp)
+  ) ibuffer0 (
+    .clk_i(clk_i)
+    ,.reset_i(reset_i)
+    
+    ,.v_i(ibuffer_v_i) /*DONE*/
+    ,.ready_o(ibuffer_ready_o) /*DONE*/
+    
+    ,.int_yum_i(ibuffer_int_yum_i) /*DONE*/
+    ,.int_v_o(ibuffer_int_v_o) /*DONE*/
+    
+    ,.fp_yum_i(ibuffer_fp_yum_i) /*DONE*/
+    ,.fp_v_o(ibuffer_fp_v_o) /*DONE*/
+    
+    ,.instr0_i(ibuffer_instr0_i) /*DONE*/
+    ,.instr1_i(ibuffer_instr1_i) /*DONE*/
+    
+    ,.pc0_i(ibuffer_pc0_i) /*DONE*/
+    ,.pc1_i(ibuffer_pc1_i) /*DONE*/
+    
+    ,.pred_or_jump_addr0_i(ibuffer_pred_or_jump_addr0_i) /*DONE*/
+    ,.pred_or_jump_addr1_i(ibuffer_pred_or_jump_addr1_i) /*DONE*/
+    
+    ,.branch_predicted_taken0_i(ibuffer_branch_predicted_taken0_i) /*DONE*/
+    ,.branch_predicted_taken1_i(ibuffer_branch_predicted_taken1_i) /*DONE*/
+    
+    ,.pred_or_jump_addr0_o(ibuffer_pred_or_jump_addr0_o) /*DONE*/
+    ,.pred_or_jump_addr1_o(ibuffer_pred_or_jump_addr1_o) /*DONE*/
+    
+    ,.pc0_o(ibuffer_pc0_o) /*DONE*/
+    ,.pc1_o(ibuffer_pc1_o) /*DONE*/
+    
+    ,.branch_predicted_taken0_o(ibuffer_branch_predicted_taken0_o) /*DONE*/
+    ,.branch_predicted_taken1_o(ibuffer_branch_predicted_taken1_o) /*DONE*/
+    
+    ,.instr_int_o(ibuffer_instr_int_o) /*DONE*/
+    ,.instr_fp_o(ibuffer_instr_fp_o) /*DONE*/
+    
+    ,.dual_issue_o(ibuffer_dual_issue_o) /*DONE*/
+    ,.single_issue_o(ibuffer_single_issue_o) /*DONE*/
+  );
+
+
   // instruction decode
   //
   decode_s decode;
@@ -230,6 +340,24 @@ module vanilla_core
     ,.decode_o(decode)
     ,.fp_decode_o(fp_decode)
   ); 
+
+  // fp_cl_decode signals
+  logic fp_cl_is_fp_op_o;
+  logic fp_cl_read_frs1_o;
+  logic fp_cl_read_frs2_o;
+  logic fp_cl_read_frs3_o;
+  logic fp_cl_write_frd_o;
+  fp_decode_s fp_cl_fp_decode_o;
+
+  fp_cl_decode fp_cl_decode0 (
+    .instruction_i() /*TODO*/
+    ,.is_fp_op_o() /*TODO*/
+    ,.read_frs1_o() /*TODO*/
+    ,.read_frs2_o() /*TODO*/
+    ,.read_frs3_o() /*TODO*/
+    ,.write_frd_o() /*TODO*/
+    ,.fp_decode_o() /*TODO*/
+  );
 
 
   //////////////////////////////
@@ -2055,4 +2183,5 @@ module vanilla_core
 endmodule
 
 `BSG_ABSTRACT_MODULE(vanilla_core)
+
 
