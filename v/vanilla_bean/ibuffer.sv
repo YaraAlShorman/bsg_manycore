@@ -20,13 +20,13 @@ module ibuffer
      
         // valid-ready signals to icache
         , input v_i
-        , output ready_o
+        , output logic ready_o
         // valid-ready signals to int decode
         , input int_yum_i
-        , output int_v_o
+        , output logic int_v_o
         // valid-ready signals to fp decode
         , input fp_yum_i
-        , output fp_v_o
+        , output logic fp_v_o
 
         , input [RV32_instr_width_gp-1:0] instr0_i
         , input [RV32_instr_width_gp-1:0] instr1_i
@@ -40,15 +40,15 @@ module ibuffer
         , input logic branch_predicted_taken1_i
      
         // To downstream
-        , output [pc_width_lp-1:0] pred_or_jump_addr0_o // predicted jump target for first instruction
-        , output [pc_width_lp-1:0] pred_or_jump_addr1_o // predicted jump target for second instruction
-        , output [pc_width_lp-1:0] pc0_o // the pc of the first instruction read from icache
-        , output [pc_width_lp-1:0] pc1_o // the pc of the second instruction (pc0_o + 1)
+        , output logic [pc_width_lp-1:0] pred_or_jump_addr0_o // predicted jump target for first instruction
+        , output logic [pc_width_lp-1:0] pred_or_jump_addr1_o // predicted jump target for second instruction
+        , output logic [pc_width_lp-1:0] pc0_o // the pc of the first instruction read from icache
+        , output logic [pc_width_lp-1:0] pc1_o // the pc of the second instruction (pc0_o + 1)
         , output logic branch_predicted_taken0_o // branch prediction for first instruction
         , output logic branch_predicted_taken1_o
 
-        , output [RV32_instr_width_gp-1:0] instr_int_o // instruction going to int decode
-        , output [RV32_instr_width_gp-1:0] instr_fp_o // instruction going to fp decode
+        , output logic [RV32_instr_width_gp-1:0] instr_int_o // instruction going to int decode
+        , output logic [RV32_instr_width_gp-1:0] instr_fp_o // instruction going to fp decode
         , output logic dual_issue_o  // indicates if both int and fp instructions are issued simultaneously
         , output logic single_issue_o  // indicates if exactly one instruction (int XOR fp) is issued
     );

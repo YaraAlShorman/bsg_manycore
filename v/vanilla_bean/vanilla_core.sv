@@ -1846,7 +1846,7 @@ module vanilla_core
   assign stall_barrier = id_r.int_decode.is_barrecv_op & (barrier_data_i != barrier_data_o);
 
   // structural stall to prevent 2 wb to integer regfile
-  assign stall_int_rf_structural = id_r.int_decode.write_rd & id_r.fp_decode.is_fpu_int_op;
+  assign stall_int_rf_structural = id_r.int_decode.write_rd & id_r.fp_decode.fp_op.is_fpu_int_op;
 
   // ID -> EXE
   // update npc_r, when the pipeline is not stalled, and there is a valid instruction in EXE/FP_EXE;

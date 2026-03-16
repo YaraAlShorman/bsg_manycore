@@ -30,108 +30,108 @@ import bsg_manycore_pkg::*;
 //+----------------------------------------------
 
 always_comb begin
-  fp_decode_o.read_frs1_o = 1'b0;
-  fp_decode_o.read_frs2_o = 1'b0;
-  fp_decode_o.read_frs3_o = 1'b0;
-  fp_decode_o.write_frd_o = 1'b0;
-  fp_decode_o.is_fp_op_o = 1'b0;
+  fp_decode_o.read_frs1 = 1'b0;
+  fp_decode_o.read_frs2 = 1'b0;
+  fp_decode_o.read_frs3 = 1'b0;
+  fp_decode_o.write_frd = 1'b0;
+  fp_decode_o.is_fp_op = 1'b0;
   unique casez (instruction_i)
     // Rtype float instr
     `RV32_FADD_S,  `RV32_FSUB_S,   `RV32_FMUL_S,
     `RV32_FSGNJ_S, `RV32_FSGNJN_S, `RV32_FSGNJX_S,
     `RV32_FMIN_S,  `RV32_FMAX_S: begin
-      fp_decode_o.read_frs1_o = 1'b1;
-      fp_decode_o.read_frs2_o = 1'b1;
-      fp_decode_o.read_frs3_o = 1'b0;
-      fp_decode_o.write_frd_o = 1'b1;
-      fp_decode_o.is_fp_op_o = 1'b1;
+      fp_decode_o.read_frs1 = 1'b1;
+      fp_decode_o.read_frs2 = 1'b1;
+      fp_decode_o.read_frs3 = 1'b0;
+      fp_decode_o.write_frd = 1'b1;
+      fp_decode_o.is_fp_op = 1'b1;
     end
     // compare
     `RV32_FEQ_S, `RV32_FLT_S, `RV32_FLE_S: begin
-      fp_decode_o.read_frs1_o = 1'b1;
-      fp_decode_o.read_frs2_o = 1'b1;
-      fp_decode_o.read_frs3_o = 1'b0;
-      fp_decode_o.write_frd_o = 1'b0;
-      fp_decode_o.is_fp_op_o = 1'b1;
+      fp_decode_o.read_frs1 = 1'b1;
+      fp_decode_o.read_frs2 = 1'b1;
+      fp_decode_o.read_frs3 = 1'b0;
+      fp_decode_o.write_frd = 1'b0;
+      fp_decode_o.is_fp_op = 1'b1;
     end
     // classify
     `RV32_FCLASS_S: begin
-      fp_decode_o.read_frs1_o = 1'b1;
-      fp_decode_o.read_frs2_o = 1'b0;
-      fp_decode_o.read_frs3_o = 1'b0;
-      fp_decode_o.write_frd_o = 1'b0;
-      fp_decode_o.is_fp_op_o = 1'b1;
+      fp_decode_o.read_frs1 = 1'b1;
+      fp_decode_o.read_frs2 = 1'b0;
+      fp_decode_o.read_frs3 = 1'b0;
+      fp_decode_o.write_frd = 1'b0;
+      fp_decode_o.is_fp_op = 1'b1;
     end
     // i2f (signed int)
     `RV32_FCVT_S_W, `RV32_FCVT_S_WU: begin
-      fp_decode_o.read_frs1_o = 1'b0;
-      fp_decode_o.read_frs2_o = 1'b0;
-      fp_decode_o.read_frs3_o = 1'b0;
-      fp_decode_o.write_frd_o = 1'b1;
-      fp_decode_o.is_fp_op_o = 1'b1;
+      fp_decode_o.read_frs1 = 1'b0;
+      fp_decode_o.read_frs2 = 1'b0;
+      fp_decode_o.read_frs3 = 1'b0;
+      fp_decode_o.write_frd = 1'b1;
+      fp_decode_o.is_fp_op = 1'b1;
     end
     // f2i
     `RV32_FCVT_W_S, `RV32_FCVT_WU_S: begin
-      fp_decode_o.read_frs1_o = 1'b1;
-      fp_decode_o.read_frs2_o = 1'b0;
-      fp_decode_o.read_frs3_o = 1'b0;
-      fp_decode_o.write_frd_o = 1'b0;
-      fp_decode_o.is_fp_op_o = 1'b1;
+      fp_decode_o.read_frs1 = 1'b1;
+      fp_decode_o.read_frs2 = 1'b0;
+      fp_decode_o.read_frs3 = 1'b0;
+      fp_decode_o.write_frd = 1'b0;
+      fp_decode_o.is_fp_op = 1'b1;
     end
     // FMV (fp -> int)
     `RV32_FMV_X_W: begin
-      fp_decode_o.read_frs1_o = 1'b1;
-      fp_decode_o.read_frs2_o = 1'b0;
-      fp_decode_o.read_frs3_o = 1'b0;
-      fp_decode_o.write_frd_o = 1'b0;
-      fp_decode_o.is_fp_op_o = 1'b1;
+      fp_decode_o.read_frs1 = 1'b1;
+      fp_decode_o.read_frs2 = 1'b0;
+      fp_decode_o.read_frs3 = 1'b0;
+      fp_decode_o.write_frd = 1'b0;
+      fp_decode_o.is_fp_op = 1'b1;
     end
     // FMV (int -> fp)
     `RV32_FMV_W_X: begin
-      fp_decode_o.read_frs1_o = 1'b0;
-      fp_decode_o.read_frs2_o = 1'b0;
-      fp_decode_o.read_frs3_o = 1'b0;
-      fp_decode_o.write_frd_o = 1'b1;
-      fp_decode_o.is_fp_op_o = 1'b1;
+      fp_decode_o.read_frs1 = 1'b0;
+      fp_decode_o.read_frs2 = 1'b0;
+      fp_decode_o.read_frs3 = 1'b0;
+      fp_decode_o.write_frd = 1'b1;
+      fp_decode_o.is_fp_op = 1'b1;
     end
     // Float load
     `RV32_FLW_S: begin
-      fp_decode_o.read_frs1_o = 1'b0;
-      fp_decode_o.read_frs2_o = 1'b0;
-      fp_decode_o.read_frs3_o = 1'b0;
-      fp_decode_o.write_frd_o = 1'b1;
-      fp_decode_o.is_fp_op_o = 1'b0;
+      fp_decode_o.read_frs1 = 1'b0;
+      fp_decode_o.read_frs2 = 1'b0;
+      fp_decode_o.read_frs3 = 1'b0;
+      fp_decode_o.write_frd = 1'b1;
+      fp_decode_o.is_fp_op = 1'b0;
     end
     // Float store
     `RV32_FSW_S: begin
-      fp_decode_o.read_frs1_o = 1'b0;
-      fp_decode_o.read_frs2_o = 1'b1;
-      fp_decode_o.read_frs3_o = 1'b0;
-      fp_decode_o.write_frd_o = 1'b0;
-      fp_decode_o.is_fp_op_o = 1'b0;
+      fp_decode_o.read_frs1 = 1'b0;
+      fp_decode_o.read_frs2 = 1'b1;
+      fp_decode_o.read_frs3 = 1'b0;
+      fp_decode_o.write_frd = 1'b0;
+      fp_decode_o.is_fp_op = 1'b0;
     end
     // FMA
     `RV32_FMADD_S, `RV32_FMSUB_S, `RV32_FNMSUB_S, `RV32_FNMADD_S: begin
-      fp_decode_o.read_frs1_o = 1'b1;
-      fp_decode_o.read_frs2_o = 1'b1;
-      fp_decode_o.read_frs3_o = 1'b1;
-      fp_decode_o.write_frd_o = 1'b1;
-      fp_decode_o.is_fp_op_o = 1'b1;
+      fp_decode_o.read_frs1 = 1'b1;
+      fp_decode_o.read_frs2 = 1'b1;
+      fp_decode_o.read_frs3 = 1'b1;
+      fp_decode_o.write_frd = 1'b1;
+      fp_decode_o.is_fp_op = 1'b1;
     end
     // FDIV, SQRT
     `RV32_FDIV_S, `RV32_FSQRT_S: begin
-      fp_decode_o.read_frs1_o = 1'b1;
-      fp_decode_o.read_frs2_o = 1'b1;
-      fp_decode_o.read_frs3_o = 1'b0;
-      fp_decode_o.write_frd_o = 1'b1;
-      fp_decode_o.is_fp_op_o = 1'b1;
+      fp_decode_o.read_frs1 = 1'b1;
+      fp_decode_o.read_frs2 = 1'b1;
+      fp_decode_o.read_frs3 = 1'b0;
+      fp_decode_o.write_frd = 1'b1;
+      fp_decode_o.is_fp_op = 1'b1;
     end
     default: begin
-      fp_decode_o.read_frs1_o = 1'b0;
-      fp_decode_o.read_frs2_o = 1'b0;
-      fp_decode_o.read_frs3_o = 1'b0;
-      fp_decode_o.write_frd_o = 1'b0;
-      fp_decode_o.is_fp_op_o = 1'b0;
+      fp_decode_o.read_frs1 = 1'b0;
+      fp_decode_o.read_frs2 = 1'b0;
+      fp_decode_o.read_frs3 = 1'b0;
+      fp_decode_o.write_frd = 1'b0;
+      fp_decode_o.is_fp_op = 1'b0;
     end
   endcase
 end
