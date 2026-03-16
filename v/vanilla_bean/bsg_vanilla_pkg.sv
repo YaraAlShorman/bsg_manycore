@@ -188,10 +188,11 @@ typedef struct packed {
 } fp_decode_s;
 
 // DONE: create new struct for all FP decode signals
+// TODO: replace instances of fp_decode_s with fp_bucket_decode_s
 typedef struct packed {
   // needed if overlap with decode_s for Int RF access
-  logic read_rs1;
-  logic write_rd;
+  logic read_rs1;           // For FCVT.S.W, FMV.W.X  
+  logic write_rd;           // For FCVT.W.S, FEQ, FCLASS, FMV.X.W
 
   logic is_fp_op;           // goes into FP_EXE
   logic read_frs1;          // reads rs1 of FP regfile
@@ -236,8 +237,8 @@ typedef struct packed
     logic [RV32_reg_data_width_gp-1:0] pred_or_jump_addr; // Jump target PC
     instruction_s                      int_instruction;   // Int instruction being executed
     instruction_s                      fp_instruction;    // FP instruction being executed
-    decode_s                           decode;            // Decode signals
-    fp_decode_s                        fp_decode;
+    decode_s                           int_decode;        // Decode signals
+    fp_bucket_decode_s                 fp_decode;
     logic                              icache_miss;
     logic                              valid;             // valid instruction in ID
     logic                              branch_predicted_taken;
@@ -250,7 +251,7 @@ typedef struct packed
     logic [RV32_reg_data_width_gp-1:0] pred_or_jump_addr; // Jump target PC
     instruction_s                      int_instruction;   // Int instruction being executed
     instruction_s                      fp_instruction;    // FP instruction being executed
-    decode_s                           decode;            // Decode signals
+    decode_s                           int_decode;            // Decode signals
     logic [RV32_reg_data_width_gp-1:0] rs1_val;           // RF output data from RS1 address
     logic [RV32_reg_data_width_gp-1:0] rs2_val;           // RF output data from RS2 address
                                                           // CSR instructions use this register for loading CSR vals
@@ -294,7 +295,7 @@ typedef struct packed {
 // FP Execute stage signals
 typedef struct packed {
   logic [RV32_reg_addr_width_gp-1:0] rd;
-  fp_decode_s fp_decode;
+  fp_bucket_decode_s fp_decode;
   frm_e rm;
 } fp_exe_ctrl_signals_s;
 
