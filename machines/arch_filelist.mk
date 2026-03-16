@@ -159,6 +159,8 @@ VSOURCES += $(BSG_MANYCORE_DIR)/v/vanilla_bean/network_tx.sv
 VSOURCES += $(BSG_MANYCORE_DIR)/v/vanilla_bean/vanilla_core.sv
 VSOURCES += $(BSG_MANYCORE_DIR)/v/vanilla_bean/alu.sv
 VSOURCES += $(BSG_MANYCORE_DIR)/v/vanilla_bean/cl_decode.sv
+# YARA added fp_cl_decode.sv
+VSOURCES += $(BSG_MANYCORE_DIR)/v/vanilla_bean/fp_cl_decode.sv
 VSOURCES += $(BSG_MANYCORE_DIR)/v/vanilla_bean/fpu_float.sv
 VSOURCES += $(BSG_MANYCORE_DIR)/v/vanilla_bean/fpu_float_fma.sv
 VSOURCES += $(BSG_MANYCORE_DIR)/v/vanilla_bean/fpu_float_fma_round.sv
@@ -177,6 +179,8 @@ VSOURCES += $(BSG_MANYCORE_DIR)/v/vanilla_bean/regfile.sv
 VSOURCES += $(BSG_MANYCORE_DIR)/v/vanilla_bean/regfile_synth.sv
 VSOURCES += $(BSG_MANYCORE_DIR)/v/vanilla_bean/regfile_hard.sv
 VSOURCES += $(BSG_MANYCORE_DIR)/v/vanilla_bean/scoreboard.sv
+# YARA added ibuffer
+VSOURCES += $(BSG_MANYCORE_DIR)/v/vanilla_bean/ibuffer.sv
 
 VSOURCES += $(BSG_MANYCORE_DIR)/v/bsg_manycore_pod_ruche_array.sv
 VSOURCES += $(BSG_MANYCORE_DIR)/v/bsg_manycore_pod_ruche.sv
@@ -201,3 +205,4 @@ VSOURCES += $(BSG_MANYCORE_DIR)/v/bsg_manycore_dram_hash_function.sv
 VSOURCES += $(BSG_MANYCORE_DIR)/v/bsg_manycore_link_sif_tieoff.sv
 VSOURCES += $(BSG_MANYCORE_DIR)/v/bsg_manycore_ruche_x_link_sif_tieoff.sv
 VSOURCES += $(BSG_MANYCORE_DIR)/v/bsg_ruche_buffer.sv
+
