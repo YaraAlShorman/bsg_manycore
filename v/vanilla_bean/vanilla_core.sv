@@ -1882,7 +1882,7 @@ module vanilla_core
       if (flush | stall_id | ~ibuffer_int_v_o) begin
         exe_en = 1'b1;
         // DONE: keep valid/pc_plus4 for PC tracking but NOP int units
-        exe_n = '{pc_plus4: id_r.pc_plus4, valid: id_r.valid, decode: '0, default: '0};
+        exe_n = '{pc_plus4: id_r.pc_plus4, valid: id_r.valid, int_decode: '0, default: '0};
       end
 
       // remove this section to prevent bubble overwriting valid int instruction
