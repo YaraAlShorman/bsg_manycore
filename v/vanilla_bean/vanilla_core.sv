@@ -157,9 +157,10 @@ module vanilla_core
   logic [pc_width_lp-1:0] icache_w_pc;
   logic [data_width_p-1:0] icache_winstr;
 
-  // TODO check where pc_r is connected and update that
+  // DONE check where pc_r is connected and update that
+  // pc_r is equal to icache_pc0_o in terms of assignment
   logic [pc_width_lp-1:0] pc_n, pc_r;
-  
+
   // icache outputs - dual issue
   instruction_s icache_instr0_o, icache_instr1_o;
   logic [pc_width_lp-1:0] icache_pc0_o;
@@ -325,7 +326,7 @@ module vanilla_core
                                     : (ibuffer_pc0_o + 1'b1);
 
   // debug pc
-  // TODO: move this to after ibuffer
+  // DONE: move this to after ibuffer
   // synopsys translate_off
   wire [data_width_p-1:0] if_pc = {{(data_width_p-pc_width_lp-2){1'b0}}, ibuffer_pc0_o, 2'b00};
   wire [data_width_p-1:0] id_pc = (id_r.pc_plus4 - 'd4);
@@ -1350,7 +1351,8 @@ module vanilla_core
       pc_n = pc_init_val_i;
     end
     else if (wb_ctrl_r.icache_miss) begin
-      pc_n = pc_r;
+      // pc_n = pc_r;
+      pc_n = icache_pc0_o; // functionally the same as before
     end
     else if (interrupt_ready) begin
       if (remote_interrupt_ready) begin
@@ -1429,7 +1431,8 @@ module vanilla_core
   assign icache_w_li = icache_v_i | ifetch_v_i;
 
   assign icache_w_pc = ifetch_v_i
-    ? {pc_r[pc_width_lp-1:lg_icache_block_size_in_words_lp], ifetch_count_r}
+    // ? {pc_r[pc_width_lp-1:lg_icache_block_size_in_words_lp], ifetch_count_r}
+    ? {icache_pc0_o[pc_width_lp-1:lg_icache_block_size_in_words_lp], ifetch_count_r}
     : icache_pc_i;
 
   assign icache_winstr = ifetch_v_i
@@ -1444,7 +1447,7 @@ module vanilla_core
 
 
   // ibuffer logic
-  // TODO: add logic for ibuffer control signals
+  // DONE: add logic for ibuffer control signals
   // receive data when icache has valid hit and no flush is occurring
   assign ibuffer_v_i = ~icache_miss & ~icache_flush_r_lo & ~stall_all; 
 
